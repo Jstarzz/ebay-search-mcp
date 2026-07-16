@@ -14,6 +14,14 @@ This server uses the MCP stdio transport. Standard output is reserved exclusivel
 
 Do not add `console.log` calls to the server. Use `process.stderr.write` for local diagnostics, or MCP structured logging if logging is added later.
 
+## Result visibility
+
+Every tool returns structured MCP data. Search and detail tools also include the important fields in their text response because some MCP clients do not visibly expose `structuredContent` to the model.
+
+The detail text includes direct links, price, shipping, estimated total, condition, seller information, returns, item specifics, and provider-specific fields when available. The full raw provider response remains opt-in through `include_raw` where supported.
+
+If every explicitly requested provider fails, `search_hardware` returns an MCP tool error instead of presenting the failure as an ordinary zero-result search. Partial provider failures remain warnings while successful results are preserved.
+
 ## Why destination matters
 
 For eBay, shipping estimates become substantially more accurate when a destination country and postal code are supplied. The MCP tool description tells Claude to ask for these before treating shipping totals as final.
@@ -89,7 +97,7 @@ An error such as `Unexpected token` followed by text that is not JSON means some
 npm test
 ```
 
-The protocol regression test starts the compiled server, confirms that startup produces no stdout, performs an MCP initialize handshake, lists tools, and verifies that every stdout line is valid JSON.
+The protocol regression test starts the compiled server, confirms that startup produces no stdout, performs an MCP initialize handshake, lists tools, calls a known provider-failure path, and verifies that every stdout line is valid JSON.
 
 Also confirm that Claude Desktop points to the current `dist/index.js`, not an old clone or the TypeScript source.
 
