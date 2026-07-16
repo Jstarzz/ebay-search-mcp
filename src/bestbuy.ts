@@ -1,6 +1,3 @@
-import { config as loadEnv } from "dotenv";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
     addMoney,
     HTTPError,
@@ -12,12 +9,9 @@ import {
     toNumberOrNull,
     type ShippingOption,
 } from "./common.js";
+import { runtimeConfig } from "./config.js";
 
-loadEnv({
-    path: resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env"),
-});
-
-const apiKey = process.env.BESTBUY_API_KEY;
+const apiKey = runtimeConfig.bestBuyApiKey;
 
 export type BestBuySort = "relevance" | "price_low" | "price_high" | "rating_high";
 
@@ -47,6 +41,10 @@ function escapeSearchToken(token: string): string {
 }
 
 export function buildBestBuySearchUrl(options: BestBuySearchOptions): URL {
+    if (options.minPrice !== undefined && options.maxPrice !== undefined && options.minPrice > options.maxPrice) {
+        throw new Error("minPrice cannot be greater than maxPrice.");
+    }
+
     const tokens = options.query
         .split(/\s+/)
         .map(escapeSearchToken)
@@ -204,7 +202,7 @@ export async function searchBestBuy(options: BestBuySearchOptions): Promise<{
     };
 }
 
-export async function getBestBuyProduct(sku: string): Promise<unknown> {
+export async function getBestBuyProduct(sku: string, includeRaw = false): Promise<unknown> {
     const url = new URL(`https://api.bestbuy.com/v1/products/${encodeURIComponent(sku)}.json`);
     url.searchParams.set("apiKey", requireApiKey());
     url.searchParams.set("show", "all");
@@ -217,7 +215,7 @@ export async function getBestBuyProduct(sku: string): Promise<unknown> {
     const product = (await response.json()) as Record<string, unknown>;
     return {
         listing: normalizeBestBuyProduct(product),
-        raw: product,
+        ...(includeRaw ? { raw: product } : {}),
     };
 }
 

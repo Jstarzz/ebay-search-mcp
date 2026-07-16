@@ -1,8 +1,7 @@
 import { searchBestBuy } from "./bestbuy.js";
 import type { NormalizedListing } from "./common.js";
+import { getConfiguredProviders, type ProcurementProvider } from "./config.js";
 import { searchEbay } from "./ebay.js";
-
-export type ProcurementProvider = "ebay" | "bestbuy";
 
 export type HardwareSearchOptions = {
     query: string;
@@ -67,11 +66,16 @@ export async function searchHardware(options: HardwareSearchOptions): Promise<{
     warnings: string[];
     listings: NormalizedListing[];
 }> {
-    const providers: ProcurementProvider[] = options.providers?.length
+    const providers = options.providers?.length
         ? [...new Set(options.providers)]
-        : ["ebay", "bestbuy"];
+        : getConfiguredProviders();
+
+    if (providers.length === 0) {
+        throw new Error("No procurement providers are configured. Add eBay credentials or a Best Buy API key to .env.");
+    }
+
     const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
-    const perProviderLimit = Math.min(Math.max(limit, 10), 50);
+    const perProviderLimit = Math.min(Math.max(limit * 3, 20), 50);
 
     const jobs = providers.map(async (provider) => {
         if (provider === "ebay") {

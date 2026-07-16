@@ -1,6 +1,3 @@
-import { config as loadEnv } from "dotenv";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
     addMoney,
     HTTPError,
@@ -12,16 +9,13 @@ import {
     toNumberOrNull,
     type ShippingOption,
 } from "./common.js";
+import { runtimeConfig } from "./config.js";
 
-loadEnv({
-    path: resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env"),
-});
-
-const clientId = process.env.EBAY_CLIENT_ID;
-const clientSecret = process.env.EBAY_CLIENT_SECRET;
-const marketplaceId = process.env.EBAY_MARKETPLACE_ID ?? "EBAY_US";
-const defaultShipToCountry = process.env.DEFAULT_SHIP_TO_COUNTRY || undefined;
-const defaultShipToPostalCode = process.env.DEFAULT_SHIP_TO_POSTAL_CODE || undefined;
+const clientId = runtimeConfig.ebayClientId;
+const clientSecret = runtimeConfig.ebayClientSecret;
+const marketplaceId = runtimeConfig.ebayMarketplaceId;
+const defaultShipToCountry = runtimeConfig.defaultShipToCountry;
+const defaultShipToPostalCode = runtimeConfig.defaultShipToPostalCode;
 
 type TokenCache = {
     token: string;
@@ -371,6 +365,7 @@ export async function getEbayItem(
     itemIdOrUrl: string,
     shipToCountry?: string,
     shipToPostalCode?: string,
+    includeRaw = false,
 ): Promise<unknown> {
     const token = await getAccessToken();
     const country = shipToCountry ?? defaultShipToCountry;
@@ -428,6 +423,6 @@ export async function getEbayItem(
         },
         estimatedAvailabilities: Array.isArray(item.estimatedAvailabilities) ? item.estimatedAvailabilities : [],
         additionalImages: Array.isArray(item.additionalImages) ? item.additionalImages : [],
-        raw: item,
+        ...(includeRaw ? { raw: item } : {}),
     };
 }
