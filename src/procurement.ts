@@ -67,7 +67,9 @@ export async function searchHardware(options: HardwareSearchOptions): Promise<{
     warnings: string[];
     listings: NormalizedListing[];
 }> {
-    const providers = options.providers?.length ? [...new Set(options.providers)] : ["ebay", "bestbuy"];
+    const providers: ProcurementProvider[] = options.providers?.length
+        ? [...new Set(options.providers)]
+        : ["ebay", "bestbuy"];
     const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
     const perProviderLimit = Math.min(Math.max(limit, 10), 50);
 
@@ -135,6 +137,7 @@ export async function searchHardware(options: HardwareSearchOptions): Promise<{
         warnings.unshift("Destination is incomplete. Ask for the shipping country and postal code before treating delivered totals as final.");
     }
 
+    const rankedListings = rankProcurementListings(listings).slice(0, limit);
     return {
         query: options.query,
         destination: {
@@ -144,8 +147,8 @@ export async function searchHardware(options: HardwareSearchOptions): Promise<{
         providersRequested: providers,
         providersSucceeded,
         providerFailures,
-        returned: Math.min(rankProcurementListings(listings).length, limit),
+        returned: rankedListings.length,
         warnings,
-        listings: rankProcurementListings(listings).slice(0, limit),
+        listings: rankedListings,
     };
 }
