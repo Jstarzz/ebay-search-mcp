@@ -1,6 +1,6 @@
 {
   "name": "ebay-search-mcp",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Read-only local MCP for hardware procurement across eBay and Best Buy.",
   "main": "dist/index.js",
   "scripts": {
