@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { getBestBuyOpenBox, getBestBuyProduct, searchBestBuy } from "./bestbuy.js";
 import { getEbayItem, searchEbay } from "./ebay.js";
+import { searchHardware } from "./procurement.js";
 
 const server = new McpServer({
     name: "hardware-procurement",
@@ -13,6 +14,44 @@ const destinationFields = {
     ship_to_country: z.string().length(2).optional().describe("ISO 3166-1 alpha-2 country code, such as US."),
     ship_to_postal_code: z.string().min(1).optional().describe("Destination postal or ZIP code."),
 };
+
+server.tool(
+    "search_hardware",
+    "Search enabled read-only retailers and return one normalized shortlist with direct product links. Ask for the destination country and postal code before treating delivered totals as final. Provider failures are returned without hiding successful results.",
+    {
+        query: z.string().min(1),
+        providers: z.array(z.enum(["ebay", "bestbuy"])).min(1).default(["ebay", "bestbuy"]),
+        limit: z.number().int().min(1).max(50).default(10),
+        min_price: z.number().nonnegative().optional(),
+        max_price: z.number().nonnegative().optional(),
+        ebay_conditions: z.array(z.enum(["NEW", "USED", "UNSPECIFIED"])).optional(),
+        ebay_buying_options: z.array(z.enum(["FIXED_PRICE", "AUCTION", "BEST_OFFER", "CLASSIFIED_AD"])).optional(),
+        returns_accepted: z.boolean().default(false),
+        ...destinationFields,
+    },
+    async (input) => {
+        const result = await searchHardware({
+            query: input.query,
+            providers: input.providers,
+            limit: input.limit,
+            minPrice: input.min_price,
+            maxPrice: input.max_price,
+            shipToCountry: input.ship_to_country,
+            shipToPostalCode: input.ship_to_postal_code,
+            ebayConditions: input.ebay_conditions,
+            ebayBuyingOptions: input.ebay_buying_options,
+            returnsAccepted: input.returns_accepted,
+        });
+
+        return {
+            structuredContent: result,
+            content: [{
+                type: "text",
+                text: `Returned ${result.returned} hardware listings from ${result.providersSucceeded.join(", ") || "no providers"}.${result.warnings.length ? ` Warnings: ${result.warnings.join(" ")}` : ""}`,
+            }],
+        };
+    },
+);
 
 server.tool(
     "search_ebay",
