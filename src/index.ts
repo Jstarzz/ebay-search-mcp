@@ -2,12 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { getBestBuyOpenBox, getBestBuyProduct, searchBestBuy } from "./bestbuy.js";
+import type { NormalizedListing } from "./common.js";
+import { getConfigurationStatus } from "./config.js";
 import { getEbayItem, searchEbay } from "./ebay.js";
 import { searchHardware } from "./procurement.js";
 
 const server = new McpServer({
     name: "hardware-procurement",
-    version: "1.0.0",
+    version: "1.1.0",
 });
 
 const destinationFields = {
@@ -15,12 +17,67 @@ const destinationFields = {
     ship_to_postal_code: z.string().min(1).optional().describe("Destination postal or ZIP code."),
 };
 
+function compactText(value: string): string {
+    return value.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function formatMoney(listing: NormalizedListing): string {
+    const amount = listing.totalCost.value !== null ? listing.totalCost : listing.price;
+    if (amount.value === null) {
+        return "price unavailable";
+    }
+    return `${amount.currency ?? ""} ${amount.value.toFixed(2)}`.trim();
+}
+
+function formatListings(listings: NormalizedListing[], maximum = 10): string {
+    if (listings.length === 0) {
+        return "No listings returned.";
+    }
+
+    return listings.slice(0, maximum).map((listing, index) => {
+        return `${index + 1}. ${compactText(listing.title)} | ${formatMoney(listing)} | ${listing.url}`;
+    }).join("\n");
+}
+
+function formatSearchResult(
+    heading: string,
+    listings: NormalizedListing[],
+    warnings: string[] = [],
+): string {
+    const sections = [heading];
+    if (warnings.length > 0) {
+        sections.push(`Warnings: ${warnings.join(" ")}`);
+    }
+    sections.push(formatListings(listings));
+    return sections.join("\n");
+}
+
+server.tool(
+    "get_procurement_status",
+    "Show which retailer providers are configured, the eBay marketplace, and non-secret destination defaults. Does not expose API credentials.",
+    {},
+    async () => {
+        const result = getConfigurationStatus();
+        const enabled = Object.entries(result.providers)
+            .filter(([, value]) => value.configured)
+            .map(([provider]) => provider);
+
+        return {
+            structuredContent: result,
+            content: [{
+                type: "text",
+                text: `Configured providers: ${enabled.join(", ") || "none"}. eBay marketplace: ${result.ebayMarketplaceId}.`,
+            }],
+        };
+    },
+);
+
 server.tool(
     "search_hardware",
-    "Search enabled read-only retailers and return one normalized shortlist with direct product links. Ask for the destination country and postal code before treating delivered totals as final. Provider failures are returned without hiding successful results.",
+    "Search configured read-only retailers and return one normalized shortlist with direct product links. Ask for the destination country and postal code before treating delivered totals as final. Provider failures are returned without hiding successful results.",
     {
         query: z.string().min(1),
-        providers: z.array(z.enum(["ebay", "bestbuy"])).min(1).default(["ebay", "bestbuy"]),
+        providers: z.array(z.enum(["ebay", "bestbuy"])).min(1).optional().describe("Providers to query. Omit to use every configured provider."),
         limit: z.number().int().min(1).max(50).default(10),
         min_price: z.number().nonnegative().optional(),
         max_price: z.number().nonnegative().optional(),
@@ -43,11 +100,16 @@ server.tool(
             returnsAccepted: input.returns_accepted,
         });
 
+        const failureWarnings = result.providerFailures.map((failure) => `${failure.provider} failed: ${failure.error}`);
         return {
             structuredContent: result,
             content: [{
                 type: "text",
-                text: `Returned ${result.returned} hardware listings from ${result.providersSucceeded.join(", ") || "no providers"}.${result.warnings.length ? ` Warnings: ${result.warnings.join(" ")}` : ""}`,
+                text: formatSearchResult(
+                    `Returned ${result.returned} hardware listings from ${result.providersSucceeded.join(", ") || "no providers"}.`,
+                    result.listings,
+                    [...result.warnings, ...failureWarnings],
+                ),
             }],
         };
     },
@@ -97,9 +159,11 @@ server.tool(
             structuredContent: result,
             content: [{
                 type: "text",
-                text: result.shippingWarning
-                    ? `Found ${result.returned} eBay listings. ${result.shippingWarning}`
-                    : `Found ${result.returned} eBay listings with destination-aware shipping data.`,
+                text: formatSearchResult(
+                    `Found ${result.returned} eBay listings.`,
+                    result.listings,
+                    result.shippingWarning ? [result.shippingWarning] : [],
+                ),
             }],
         };
     },
@@ -110,6 +174,7 @@ server.tool(
     "Get detailed read-only information for one eBay item, including direct link, aspects, shipping options, availability, and return terms. Accepts a REST item ID, numeric listing ID, or eBay item URL.",
     {
         item_id_or_url: z.string().min(1),
+        include_raw: z.boolean().default(false).describe("Include the full provider payload. Leave false to reduce context size."),
         ...destinationFields,
     },
     async (input) => {
@@ -117,6 +182,7 @@ server.tool(
             input.item_id_or_url,
             input.ship_to_country,
             input.ship_to_postal_code,
+            input.include_raw,
         );
         return {
             structuredContent: result as Record<string, unknown>,
@@ -147,7 +213,14 @@ server.tool(
         });
         return {
             structuredContent: result,
-            content: [{ type: "text", text: `Found ${result.returned} Best Buy products. ${result.shippingWarning}` }],
+            content: [{
+                type: "text",
+                text: formatSearchResult(
+                    `Found ${result.returned} Best Buy products.`,
+                    result.listings,
+                    [result.shippingWarning],
+                ),
+            }],
         };
     },
 );
@@ -155,9 +228,12 @@ server.tool(
 server.tool(
     "get_bestbuy_product",
     "Get full read-only Best Buy product details and a direct product link by SKU.",
-    { sku: z.string().min(1) },
-    async ({ sku }) => {
-        const result = await getBestBuyProduct(sku);
+    {
+        sku: z.string().min(1),
+        include_raw: z.boolean().default(false).describe("Include the full provider payload. Leave false to reduce context size."),
+    },
+    async ({ sku, include_raw }) => {
+        const result = await getBestBuyProduct(sku, include_raw);
         return {
             structuredContent: result as Record<string, unknown>,
             content: [{ type: "text", text: "Retrieved the Best Buy product details and direct link." }],
@@ -178,5 +254,13 @@ server.tool(
     },
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+async function main(): Promise<void> {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+}
+
+main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    process.stderr.write(`Failed to start hardware procurement MCP: ${message}\n`);
+    process.exitCode = 1;
+});
