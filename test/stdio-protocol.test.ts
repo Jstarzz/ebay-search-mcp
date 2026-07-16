@@ -24,7 +24,10 @@ async function waitForLine(lines: string[], index: number, timeoutMs = 3000): Pr
 test("stdio server writes only JSON-RPC messages to stdout", { timeout: 8000 }, async (t) => {
     const child = spawn(process.execPath, [resolve(projectRoot, "dist/index.js")], {
         cwd: projectRoot,
-        env: { ...process.env },
+        env: {
+            ...process.env,
+            BESTBUY_API_KEY: "",
+        },
         stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -98,6 +101,36 @@ test("stdio server writes only JSON-RPC messages to stdout", { timeout: 8000 }, 
     assert.equal(toolsResponse.jsonrpc, "2.0");
     assert.equal(toolsResponse.id, 2);
     assert.ok(Array.isArray(toolsResponse.result?.tools));
+
+    child.stdin.write(`${JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+            name: "search_hardware",
+            arguments: {
+                query: "test product",
+                providers: ["bestbuy"],
+            },
+        },
+    })}\n`);
+
+    const failedProviderLine = await waitForLine(lines, 2);
+    const failedProviderResponse = JSON.parse(failedProviderLine) as {
+        jsonrpc?: string;
+        id?: number;
+        result?: {
+            isError?: boolean;
+            content?: Array<{ type?: string; text?: string }>;
+        };
+    };
+    assert.equal(failedProviderResponse.jsonrpc, "2.0");
+    assert.equal(failedProviderResponse.id, 3);
+    assert.equal(failedProviderResponse.result?.isError, true);
+    assert.match(
+        failedProviderResponse.result?.content?.[0]?.text ?? "",
+        /Search failed for every requested provider/,
+    );
 
     for (const line of lines) {
         assert.doesNotThrow(() => JSON.parse(line), `Invalid stdout JSON: ${line}`);
