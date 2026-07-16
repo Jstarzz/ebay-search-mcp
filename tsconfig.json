@@ -12,5 +12,5 @@
     "types": ["node"],
     "lib": ["ES2022"]
   },
-  "include": ["src/index.ts", "src/ebay.ts"]
+  "include": ["src/**/*.ts"]
 }
