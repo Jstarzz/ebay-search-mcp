@@ -18,7 +18,7 @@ jobs:
           - ubuntu-latest
           - windows-latest
         node:
-          - 20
+          - 20.17.0
           - 22
     runs-on: ${{ matrix.os }}
 
@@ -35,5 +35,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and test
-        run: npm test
+      - name: Build
+        run: npm run build
+
+      - name: Unit and source safety tests
+        run: npx tsx --test test/bestbuy.test.ts test/ebay.test.ts test/procurement.test.ts test/source-safety.test.ts
+
+      - name: Stdio protocol test
+        run: npx tsx --test test/stdio-protocol.test.ts
