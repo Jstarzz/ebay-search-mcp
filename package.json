@@ -1,13 +1,13 @@
 {
   "name": "ebay-search-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Read-only local MCP for hardware procurement across eBay and Best Buy.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "tsx --test test/**/*.test.ts"
+    "test": "npm run build && tsx --test test/**/*.test.ts"
   },
   "repository": {
     "type": "git",
@@ -23,6 +23,9 @@
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
   "bugs": {
     "url": "https://github.com/Jstarzz/ebay-search-mcp/issues"
   },
