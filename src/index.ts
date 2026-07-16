@@ -5,11 +5,16 @@ import { getBestBuyOpenBox, getBestBuyProduct, searchBestBuy } from "./bestbuy.j
 import type { NormalizedListing } from "./common.js";
 import { getConfigurationStatus } from "./config.js";
 import { getEbayItem, searchEbay } from "./ebay.js";
+import {
+    formatBestBuyOpenBoxResult,
+    formatBestBuyProductResult,
+    formatEbayItemResult,
+} from "./format.js";
 import { searchHardware } from "./procurement.js";
 
 const server = new McpServer({
     name: "hardware-procurement",
-    version: "1.1.0",
+    version: "1.2.0",
 });
 
 const destinationFields = {
@@ -101,16 +106,22 @@ server.tool(
         });
 
         const failureWarnings = result.providerFailures.map((failure) => `${failure.provider} failed: ${failure.error}`);
+        const allProvidersFailed = result.providersSucceeded.length === 0 && result.providerFailures.length > 0;
+        const heading = allProvidersFailed
+            ? "Search failed for every requested provider."
+            : `Returned ${result.returned} hardware listings from ${result.providersSucceeded.join(", ") || "no providers"}.`;
+
         return {
             structuredContent: result,
             content: [{
                 type: "text",
                 text: formatSearchResult(
-                    `Returned ${result.returned} hardware listings from ${result.providersSucceeded.join(", ") || "no providers"}.`,
+                    heading,
                     result.listings,
                     [...result.warnings, ...failureWarnings],
                 ),
             }],
+            isError: allProvidersFailed,
         };
     },
 );
@@ -171,7 +182,7 @@ server.tool(
 
 server.tool(
     "get_ebay_item",
-    "Get detailed read-only information for one eBay item, including direct link, aspects, shipping options, availability, and return terms. Accepts a REST item ID, numeric listing ID, or eBay item URL.",
+    "Get detailed read-only information for one eBay item, including direct link, price, seller, shipping, aspects, availability, and return terms. Accepts a REST item ID, numeric listing ID, or eBay item URL.",
     {
         item_id_or_url: z.string().min(1),
         include_raw: z.boolean().default(false).describe("Include the full provider payload. Leave false to reduce context size."),
@@ -186,7 +197,7 @@ server.tool(
         );
         return {
             structuredContent: result as Record<string, unknown>,
-            content: [{ type: "text", text: "Retrieved the eBay item details and direct purchase link." }],
+            content: [{ type: "text", text: formatEbayItemResult(result) }],
         };
     },
 );
@@ -236,7 +247,7 @@ server.tool(
         const result = await getBestBuyProduct(sku, include_raw);
         return {
             structuredContent: result as Record<string, unknown>,
-            content: [{ type: "text", text: "Retrieved the Best Buy product details and direct link." }],
+            content: [{ type: "text", text: formatBestBuyProductResult(result) }],
         };
     },
 );
@@ -249,7 +260,7 @@ server.tool(
         const result = await getBestBuyOpenBox(sku);
         return {
             structuredContent: result as Record<string, unknown>,
-            content: [{ type: "text", text: "Retrieved available Best Buy open-box offers." }],
+            content: [{ type: "text", text: formatBestBuyOpenBoxResult(result) }],
         };
     },
 );
