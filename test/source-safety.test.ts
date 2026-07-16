@@ -22,6 +22,7 @@ test("authored source and documentation contain no emoji or non-ASCII symbols", 
     const files = [
         ...collectFiles(resolve(projectRoot, "src")),
         ...collectFiles(resolve(projectRoot, "test")),
+        ...collectFiles(resolve(projectRoot, ".github")),
         resolve(projectRoot, "README.md"),
         resolve(projectRoot, "package.json"),
         resolve(projectRoot, "tsconfig.json"),
