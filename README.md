@@ -2,6 +2,7 @@
 
 A local, read-only MCP server for finding hardware listings and returning direct product links. It currently supports:
 
+- **Unified procurement search** — one normalized shortlist across enabled providers, with provider failures reported instead of hiding successful results.
 - **eBay Browse API** — destination-aware search, filters, delivered-price ranking, seller data, detailed item lookup.
 - **Best Buy Products API** — catalog search, product details, shipping weight/cost fields, ratings, and open-box lookup.
 
@@ -17,6 +18,7 @@ Best Buy's public Products API exposes catalog shipping fields, but exact addres
 
 | Tool | Purpose |
 |---|---|
+| `search_hardware` | Search enabled providers and return one ranked shortlist with direct links |
 | `search_ebay` | Search and filter eBay listings; rank by price plus returned shipping cost |
 | `get_ebay_item` | Retrieve detailed listing, shipping, aspects, availability, returns, and direct link |
 | `search_bestbuy` | Search Best Buy products with price and availability filters |
