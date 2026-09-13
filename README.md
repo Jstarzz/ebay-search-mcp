@@ -1,46 +1,103 @@
 # Hardware Procurement MCP
 
-A local, read-only MCP server for finding hardware listings and returning direct product links. It currently supports:
+A local, read-only MCP server for finding hardware and shopping listings with direct product links. It now supports resilient eBay search plus routed Amazon and AliExpress fallbacks while keeping purchasing actions out of scope.
 
-- **Unified procurement search** - one normalized shortlist across configured providers, with provider failures reported instead of hiding successful results.
-- **eBay Browse API** - destination-aware search, filters, delivered-price ranking, seller data, and detailed item lookup.
-- **Best Buy Products API** - catalog search, product details, shipping weight and cost fields, ratings, and open-box lookup.
+## What it supports
 
-It never adds items to a cart, checks out, bids, or purchases anything.
+- **eBay** — official Browse API first, with smart deal ranking, transient-error retries, and an optional self-hosted scraper fallback in the routing policy.
+- **Amazon** — cache-first routing across Bright Data, ScrapingDog, HasData, Apify, SerpApi, reserve providers, and self-hosted overflow.
+- **AliExpress** — cache-first routing across the official Affiliate API, Apify, self-hosted scraping, shared Bright Data/HasData capacity, and reserve providers.
+- **Best Buy** — official Products API, product details, shipping fields, ratings, and open-box lookup.
+- **Normalized results** — provider-specific payloads are converted into one listing shape so downstream formatting and ranking do not need provider-specific branches.
+
+It never adds items to a cart, checks out, bids, places orders, or changes retailer accounts.
+
+## Provider routing policy
+
+The provider order is intentionally asymmetric. Amazon is the difficult anti-bot target, so shared recurring-free capacity is preserved for Amazon whenever possible.
+
+```text
+eBay:
+  official Browse API
+  -> self-hosted fallback
+
+Amazon:
+  cache
+  -> Bright Data
+  -> ScrapingDog
+  -> HasData
+  -> Apify
+  -> SerpApi
+  -> trial/reserve pool
+  -> self-hosted
+
+AliExpress:
+  cache
+  -> official Affiliate API
+  -> Apify
+  -> self-hosted
+  -> Bright Data
+  -> HasData
+  -> trial/reserve pool
+```
+
+The trial/reserve pool is registered separately and is never treated as permanent monthly capacity:
+
+- Oxylabs
+- ScrapingBee
+- ScraperAPI
+- Crawlbase
+- Zyte
+- Decodo
+
+The routing registry tracks provider class, recurring allowance metadata, shared allowance groups, required environment variables, and whether capacity should be preserved for Amazon. `get_procurement_status` exposes the configured route without exposing secrets.
+
+### Native adapters currently wired
+
+Amazon has native structured-data adapters for:
+
+- Bright Data Amazon dataset scraping
+- ScrapingDog Amazon Search API
+- HasData Amazon Search API
+- Apify Actor execution
+- SerpApi Amazon Search API
+- self-hosted JSON endpoint
+
+AliExpress has native structured-data adapters for:
+
+- official Affiliate Product Query API
+- Apify Actor execution
+- self-hosted JSON endpoint
+
+Bright Data and HasData remain in the AliExpress policy after the cheaper paths, but the MCP deliberately does not consume them for AliExpress through an unstructured generic scraper yet. This protects Amazon capacity and avoids pretending an HTML response is equivalent to structured product data.
+
+The reserve providers are present in policy/configuration now, but they do not yet have native structured adapters. They can be rotated in later without changing the routing model or MCP tool contracts.
+
+## Cache behavior
+
+Amazon and AliExpress routed searches use a five-minute in-process cache keyed by store, query, price range, destination, and result limit. A cache hit avoids consuming any provider credits.
+
+The router tries configured providers in order and stops after the first provider returns usable structured listings. Provider failures are retained in the result for diagnostics rather than silently swallowed.
 
 ## Protocol safety
 
-This server uses the MCP stdio transport. Standard output is reserved exclusively for JSON-RPC messages. Environment loading is centralized and runs with dotenv quiet mode enabled, so startup banners and normal logs cannot corrupt the protocol stream.
+This server uses MCP over stdio. Standard output is reserved exclusively for JSON-RPC messages. Environment loading uses dotenv quiet mode so startup banners cannot corrupt the protocol stream.
 
-Do not add `console.log` calls to the server. Use `process.stderr.write` for local diagnostics, or MCP structured logging if logging is added later.
-
-## Result visibility
-
-Every tool returns structured MCP data. Search and detail tools also include the important fields in their text response because some MCP clients do not visibly expose `structuredContent` to the model.
-
-The detail text includes direct links, price, shipping, estimated total, condition, seller information, returns, item specifics, and provider-specific fields when available. The full raw provider response remains opt-in through `include_raw` where supported.
-
-If every explicitly requested provider fails, `search_hardware` returns an MCP tool error instead of presenting the failure as an ordinary zero-result search. Partial provider failures remain warnings while successful results are preserved.
-
-## Why destination matters
-
-For eBay, shipping estimates become substantially more accurate when a destination country and postal code are supplied. The MCP tool description tells Claude to ask for these before treating shipping totals as final.
-
-Best Buy's public Products API exposes catalog shipping fields, but exact address-specific checkout quotes require Best Buy's restricted Commerce API. Returned product URLs should be opened to confirm the final total.
+Do not add `console.log` calls to the server. Use `process.stderr.write` for local diagnostics or MCP structured logging.
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
-| `get_procurement_status` | Show configured providers and non-secret defaults |
-| `search_hardware` | Search configured providers and return one ranked shortlist with direct links |
-| `search_ebay` | Search and filter eBay listings; rank by price plus returned shipping cost |
-| `get_ebay_item` | Retrieve detailed listing, shipping, aspects, availability, returns, and direct link |
+| `get_procurement_status` | Show configured direct providers, routing order, and non-secret defaults |
+| `search_hardware` | Search the existing eBay/Best Buy procurement providers and return one ranked shortlist |
+| `search_amazon` | Search Amazon through the cache-first free-provider router |
+| `search_aliexpress` | Search AliExpress through the cache-first official/Apify/self-hosted router |
+| `search_ebay` | Search eBay with retry logic and deal-quality ranking |
+| `get_ebay_item` | Retrieve detailed eBay listing, seller, shipping, availability, returns, and direct link |
 | `search_bestbuy` | Search Best Buy products with price and availability filters |
 | `get_bestbuy_product` | Retrieve Best Buy product details by SKU |
 | `get_bestbuy_open_box` | Retrieve Best Buy open-box offers for a SKU |
-
-The detail tools omit the full raw provider response by default to reduce context usage. Set `include_raw` to true only when the normalized fields are insufficient.
 
 ## Setup
 
@@ -48,22 +105,71 @@ The detail tools omit the full raw provider response by default to reduce contex
 npm install
 cp .env.example .env
 npm run build
+npm test
 ```
 
-Fill in `.env`:
+Configure only the providers you actually have. Unconfigured providers are skipped automatically.
+
+### Core retailer credentials
 
 ```env
-EBAY_CLIENT_ID=your-client-id
-EBAY_CLIENT_SECRET=your-client-secret
+EBAY_CLIENT_ID=
+EBAY_CLIENT_SECRET=
 EBAY_MARKETPLACE_ID=EBAY_US
-BESTBUY_API_KEY=your-api-key
-
-# Optional defaults. Leave the postal code blank if Claude should always ask.
-DEFAULT_SHIP_TO_COUNTRY=US
-DEFAULT_SHIP_TO_POSTAL_CODE=
+BESTBUY_API_KEY=
 ```
 
-Only configured providers are searched by default. You can configure eBay, Best Buy, or both.
+### Amazon free-provider pool
+
+```env
+BRIGHT_DATA_API_KEY=
+SCRAPINGDOG_API_KEY=
+HASDATA_API_KEY=
+SERPAPI_API_KEY=
+
+APIFY_TOKEN=
+APIFY_AMAZON_ACTOR_ID=
+
+AMAZON_SELFHOSTED_URL=
+```
+
+### AliExpress pool
+
+```env
+ALIEXPRESS_APP_KEY=
+ALIEXPRESS_APP_SECRET=
+ALIEXPRESS_TRACKING_ID=
+ALIEXPRESS_API_URL=https://api-sg.aliexpress.com/sync
+ALIEXPRESS_SIGN_METHOD=md5
+
+APIFY_TOKEN=
+APIFY_ALIEXPRESS_ACTOR_ID=
+
+ALIEXPRESS_SELFHOSTED_URL=
+```
+
+See `.env.example` for marketplace/domain overrides and reserve-provider variables.
+
+## Self-hosted scraper contract
+
+Amazon and AliExpress self-hosted fallbacks receive a POST body like:
+
+```json
+{
+  "query": "rtx 3080",
+  "limit": 10,
+  "minPrice": 200,
+  "maxPrice": 500,
+  "shipToCountry": "US",
+  "shipToPostalCode": "10001"
+}
+```
+
+The endpoint may return a plain array or an object containing `results`, `products`, `items`, `data`, or `result`. Rows are normalized from common fields such as `title`, `url`, `price`, `currency`, `image`, seller fields, rating, review count, availability, and shipping cost.
+
+## Destination accuracy
+
+Shipping totals are only as good as the upstream provider data. eBay can become destination-aware when country and postal code are supplied. Amazon/AliExpress providers vary: some expose location-aware price/shipping while others only expose the search-page price. Treat unknown shipping as provisional and confirm final checkout totals on the retailer.
 
 ## Claude Desktop
 
@@ -82,27 +188,15 @@ Point Claude Desktop at the built JavaScript file:
 
 If Claude Desktop cannot find `node`, replace `command` with the full path returned by `where node` on Windows or `which node` on macOS/Linux.
 
-After pulling or merging changes, always rebuild and restart Claude Desktop:
+After pulling or merging changes, rebuild and restart the MCP client:
 
 ```bash
 npm install
 npm run build
 ```
 
-## Troubleshooting invalid JSON startup errors
+## CI/CD
 
-An error such as `Unexpected token` followed by text that is not JSON means something wrote to stdout before the MCP response. Run:
+Pull requests and `main` run the full test/build matrix on Node 20 and 22 across Linux and Windows. Successful builds retain compiled artifacts and verify package contents.
 
-```bash
-npm test
-```
-
-The protocol regression test starts the compiled server, confirms that startup produces no stdout, performs an MCP initialize handshake, lists tools, calls a known provider-failure path, and verifies that every stdout line is valid JSON.
-
-Also confirm that Claude Desktop points to the current `dist/index.js`, not an old clone or the TypeScript source.
-
-## AliExpress status
-
-AliExpress is intentionally not included yet. Public projects that expose destination shipping generally reverse-engineer AliExpress browser endpoints and depend on logged-in cookies. That can work locally, but it is more brittle than the official eBay and Best Buy integrations and needs a separate provider implementation with explicit warnings and throttling.
-
-The next sensible step is an optional `aliexpress` adapter behind its own environment flag, not mixing unstable scraping into the reliable providers.
+Tags matching `v*.*.*` run the release workflow, verify the tag against `package.json`, run the complete test suite, build the npm tarball, generate SHA-256 checksums, upload artifacts, and create a GitHub Release.
