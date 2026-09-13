@@ -6,11 +6,17 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   test:
+    name: Node ${{ matrix.node }} / ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -37,3 +43,16 @@ jobs:
 
       - name: Build and test
         run: npm test
+
+      - name: Verify package can be packed
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm pack --dry-run
+
+      - name: Upload compiled MCP
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-search-mcp-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
