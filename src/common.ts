@@ -38,7 +38,21 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
+function unwrapNumberLike(value: unknown): unknown {
+    if (!isRecord(value)) {
+        return value;
+    }
+
+    for (const key of ["value", "amount", "extracted", "numeric", "price"]) {
+        if (value[key] !== undefined && value[key] !== null) {
+            return value[key];
+        }
+    }
+    return value;
+}
+
 export function toNumberOrNull(value: unknown): number | null {
+    value = unwrapNumberLike(value);
     if (value === undefined || value === null || value === "") {
         return null;
     }
@@ -60,9 +74,12 @@ export function textOrNull(value: unknown): string | null {
 }
 
 export function money(value: unknown, currency: unknown): Money {
+    const nestedCurrency = isRecord(value)
+        ? textOrNull(value.currency) ?? textOrNull(value.currencyCode) ?? textOrNull(value.currency_code)
+        : null;
     return {
         value: toNumberOrNull(value),
-        currency: textOrNull(currency),
+        currency: textOrNull(currency) ?? nestedCurrency,
     };
 }
 
