@@ -1,6 +1,7 @@
 import { config as loadEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getRoutingStatus } from "./provider-routing.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -42,6 +43,7 @@ export function getConfiguredProviders(): ProcurementProvider[] {
 
 export function getConfigurationStatus(): {
     providers: Record<ProcurementProvider, { configured: boolean }>;
+    routing: ReturnType<typeof getRoutingStatus>;
     ebayMarketplaceId: string;
     defaultDestination: {
         country: string | null;
@@ -58,6 +60,7 @@ export function getConfigurationStatus(): {
                 configured: Boolean(runtimeConfig.bestBuyApiKey),
             },
         },
+        routing: getRoutingStatus(),
         ebayMarketplaceId: runtimeConfig.ebayMarketplaceId,
         defaultDestination: {
             country: runtimeConfig.defaultShipToCountry ?? null,
