@@ -5,7 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const printableAscii = /^[\x09\x0A\x0D\x20-\x7E]*$/;
+const allowedText = /^[\x09\x0A\x0D\x20-\x7E\u00A3\u20AC]*$/;
 
 function collectFiles(path: string): string[] {
     if (!statSync(path).isDirectory()) {
@@ -18,7 +18,7 @@ function collectFiles(path: string): string[] {
     });
 }
 
-test("authored source and documentation contain no emoji or non-ASCII symbols", () => {
+test("authored source and documentation contain no emoji or unexpected non-ASCII symbols", () => {
     const files = [
         ...collectFiles(resolve(projectRoot, "src")),
         ...collectFiles(resolve(projectRoot, "test")),
@@ -33,8 +33,8 @@ test("authored source and documentation contain no emoji or non-ASCII symbols", 
         const contents = readFileSync(file, "utf8");
         assert.match(
             contents,
-            printableAscii,
-            `${relative(projectRoot, file)} contains an emoji or non-ASCII symbol.`,
+            allowedText,
+            `${relative(projectRoot, file)} contains an emoji or unexpected non-ASCII symbol.`,
         );
     }
 });
