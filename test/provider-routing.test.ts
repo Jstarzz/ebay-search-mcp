@@ -8,38 +8,14 @@ import {
 } from "../src/provider-routing.js";
 
 test("store routes match the intended free-provider priority", () => {
-    assert.deepEqual(storeRoutes.ebay, [
-        "ebay-official",
-        "ebay-selfhosted",
-    ]);
-
+    assert.deepEqual(storeRoutes.ebay, ["ebay-official", "ebay-selfhosted"]);
     assert.deepEqual(storeRoutes.amazon, [
-        "bright-data",
-        "scrapingdog",
-        "hasdata",
-        "apify",
-        "serpapi",
-        "oxylabs",
-        "scrapingbee",
-        "scraperapi",
-        "crawlbase",
-        "zyte",
-        "decodo",
-        "amazon-selfhosted",
+        "bright-data", "scrapingdog", "hasdata", "apify", "serpapi",
+        "oxylabs", "scrapingbee", "scraperapi", "crawlbase", "zyte", "decodo", "amazon-selfhosted",
     ]);
-
     assert.deepEqual(storeRoutes.aliexpress, [
-        "aliexpress-official",
-        "apify",
-        "aliexpress-selfhosted",
-        "bright-data",
-        "hasdata",
-        "oxylabs",
-        "scrapingbee",
-        "scraperapi",
-        "crawlbase",
-        "zyte",
-        "decodo",
+        "aliexpress-official", "apify", "aliexpress-selfhosted", "bright-data", "hasdata",
+        "oxylabs", "scrapingbee", "scraperapi", "crawlbase", "zyte", "decodo",
     ]);
 });
 
@@ -54,15 +30,25 @@ test("configured route removes unavailable providers without changing priority",
         BRIGHT_DATA_API_KEY: "bright",
         SCRAPINGDOG_API_KEY: "dog",
         APIFY_TOKEN: "apify",
+        APIFY_AMAZON_ACTOR_ID: "actor",
         AMAZON_SELFHOSTED_URL: "http://127.0.0.1:3001",
     };
 
     assert.deepEqual(getConfiguredRoute("amazon", env), [
-        "bright-data",
-        "scrapingdog",
-        "apify",
-        "amazon-selfhosted",
+        "bright-data", "scrapingdog", "apify", "amazon-selfhosted",
     ]);
+});
+
+test("Apify requires a store-specific actor ID", () => {
+    assert.deepEqual(getConfiguredRoute("amazon", { APIFY_TOKEN: "token" }), []);
+    assert.deepEqual(getConfiguredRoute("amazon", {
+        APIFY_TOKEN: "token",
+        APIFY_AMAZON_ACTOR_ID: "amazon-actor",
+    }), ["apify"]);
+    assert.deepEqual(getConfiguredRoute("aliexpress", {
+        APIFY_TOKEN: "token",
+        APIFY_ALIEXPRESS_ACTOR_ID: "ali-actor",
+    }), ["apify"]);
 });
 
 test("official providers require their complete credential pair", () => {
