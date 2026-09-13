@@ -38,20 +38,25 @@ async function withRetries<T>(operation: () => Promise<T>, attempts = 3): Promis
 
 export async function searchEbaySmart(options: EbaySearchOptions): Promise<EbaySearchResult> {
     const requestedLimit = Math.min(Math.max(options.limit ?? 10, 1), 50);
-    const candidateLimit = Math.min(Math.max(requestedLimit * 4, 25), 50);
+    const shouldRankDeals = options.rankByTotalCost ?? true;
+    const candidateLimit = shouldRankDeals
+        ? Math.min(Math.max(requestedLimit * 4, 25), 50)
+        : requestedLimit;
 
     const result = await withRetries(() => searchEbay({
         ...options,
         limit: candidateLimit,
-        // Preserve eBay's candidate ordering. We perform deal-quality ranking after normalization.
+        // Preserve eBay's candidate ordering until optional local ranking below.
         rankByTotalCost: false,
     }));
 
-    const ranked = rankEbayDeals(result.listings, options.query).slice(0, requestedLimit);
+    const listings = shouldRankDeals
+        ? rankEbayDeals(result.listings, options.query).slice(0, requestedLimit)
+        : result.listings.slice(0, requestedLimit);
 
     return {
         ...result,
-        returned: ranked.length,
-        listings: ranked,
+        returned: listings.length,
+        listings,
     };
 }
