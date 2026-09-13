@@ -10,8 +10,10 @@ export type ShippingOption = {
     maxEstimatedDeliveryDate: string | null;
 };
 
+export type ListingStore = "ebay" | "bestbuy" | "amazon" | "aliexpress";
+
 export type NormalizedListing = {
-    provider: "ebay" | "bestbuy";
+    provider: ListingStore;
     id: string;
     title: string;
     url: string;
@@ -39,6 +41,14 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function toNumberOrNull(value: unknown): number | null {
     if (value === undefined || value === null || value === "") {
         return null;
+    }
+
+    if (typeof value === "string") {
+        const match = value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+        if (!match) {
+            return null;
+        }
+        value = match[0];
     }
 
     const parsed = Number(value);
