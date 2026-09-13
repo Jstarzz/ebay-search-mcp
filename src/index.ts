@@ -4,17 +4,18 @@ import { z } from "zod";
 import { getBestBuyOpenBox, getBestBuyProduct, searchBestBuy } from "./bestbuy.js";
 import type { NormalizedListing } from "./common.js";
 import { getConfigurationStatus } from "./config.js";
-import { getEbayItem, searchEbay } from "./ebay.js";
+import { getEbayItem } from "./ebay.js";
 import {
     formatBestBuyOpenBoxResult,
     formatBestBuyProductResult,
     formatEbayItemResult,
 } from "./format.js";
 import { searchHardware } from "./procurement.js";
+import { searchEbaySmart } from "./smart-ebay.js";
 
 const server = new McpServer({
     name: "hardware-procurement",
-    version: "1.2.0",
+    version: "1.3.0",
 });
 
 const destinationFields = {
@@ -128,7 +129,7 @@ server.tool(
 
 server.tool(
     "search_ebay",
-    "Read-only eBay procurement search. Returns direct listing links and ranks by item price plus the lowest returned shipping cost. Ask the user for destination country and postal code before relying on shipping totals.",
+    "Read-only eBay procurement search. Searches a larger eBay candidate pool, retries transient provider failures, and ranks by delivered cost, query match, seller quality, returns, shipping certainty, and listing-risk signals. Ask the user for destination country and postal code before relying on shipping totals.",
     {
         query: z.string().min(1),
         limit: z.number().int().min(1).max(50).default(10),
@@ -147,7 +148,7 @@ server.tool(
         ...destinationFields,
     },
     async (input) => {
-        const result = await searchEbay({
+        const result = await searchEbaySmart({
             query: input.query,
             limit: input.limit,
             minPrice: input.min_price,
@@ -171,7 +172,7 @@ server.tool(
             content: [{
                 type: "text",
                 text: formatSearchResult(
-                    `Found ${result.returned} eBay listings.`,
+                    `Found ${result.returned} eBay listings ranked for deal quality.`,
                     result.listings,
                     result.shippingWarning ? [result.shippingWarning] : [],
                 ),
