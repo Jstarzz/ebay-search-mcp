@@ -294,7 +294,7 @@ async function searchApify(options: MarketplaceSearchOptions): Promise<Normalize
     if (!actor) throw new Error(`APIFY_${options.store.toUpperCase()}_ACTOR_ID is not configured`);
 
     const actorId = actor.replace("/", "~");
-    const url = new URL(`https://api.apify.com/v2/acts/${encodeURIComponent(actorId)}/run-sync-get-dataset-items`);
+    const url = new URL(`https://api.apify.com/v2/actors/${encodeURIComponent(actorId)}/run-sync-get-dataset-items`);
     url.searchParams.set("token", token);
     url.searchParams.set("clean", "1");
     url.searchParams.set("limit", String(Math.min(options.limit ?? 10, 50)));
