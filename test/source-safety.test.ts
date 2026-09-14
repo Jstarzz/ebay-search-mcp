@@ -5,7 +5,9 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const allowedText = /^[\x09\x0A\x0D\x20-\x7E\u00A3\u20AC]*$/;
+// Keep authored files free of emoji/control junk while allowing the small set of
+// typographic/currency characters intentionally used in docs and price parsing.
+const allowedText = /^[\x09\x0A\x0D\x20-\x7E\u00A3\u20AC\u2013\u2014\u2018\u2019\u201C\u201D]*$/;
 
 function collectFiles(path: string): string[] {
     if (!statSync(path).isDirectory()) {
