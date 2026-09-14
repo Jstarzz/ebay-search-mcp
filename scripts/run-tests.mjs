@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 function collectTests(directory) {
     return readdirSync(directory, { withFileTypes: true })
@@ -18,8 +18,8 @@ if (tests.length === 0) {
     process.exit(1);
 }
 
-const executable = process.platform === "win32" ? "tsx.cmd" : "tsx";
-const result = spawnSync(executable, ["--test", ...tests], {
+const tsxCli = resolve("node_modules", "tsx", "dist", "cli.mjs");
+const result = spawnSync(process.execPath, [tsxCli, "--test", ...tests], {
     stdio: "inherit",
     shell: false,
 });
