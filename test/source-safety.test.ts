@@ -24,6 +24,7 @@ test("authored source and documentation contain no emoji or unexpected non-ASCII
     const files = [
         ...collectFiles(resolve(projectRoot, "src")),
         ...collectFiles(resolve(projectRoot, "test")),
+        ...collectFiles(resolve(projectRoot, "scripts")),
         ...collectFiles(resolve(projectRoot, ".github")),
         resolve(projectRoot, "README.md"),
         resolve(projectRoot, "package.json"),
