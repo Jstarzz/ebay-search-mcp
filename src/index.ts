@@ -4,17 +4,19 @@ import { z } from "zod";
 import { getBestBuyOpenBox, getBestBuyProduct, searchBestBuy } from "./bestbuy.js";
 import type { NormalizedListing } from "./common.js";
 import { getConfigurationStatus } from "./config.js";
-import { getEbayItem, searchEbay } from "./ebay.js";
+import { getEbayItem } from "./ebay.js";
 import {
     formatBestBuyOpenBoxResult,
     formatBestBuyProductResult,
     formatEbayItemResult,
 } from "./format.js";
+import { searchMarketplace } from "./marketplace-search.js";
 import { searchHardware } from "./procurement.js";
+import { searchEbaySmart } from "./smart-ebay.js";
 
 const server = new McpServer({
     name: "hardware-procurement",
-    version: "1.2.0",
+    version: "1.3.0",
 });
 
 const destinationFields = {
@@ -59,19 +61,22 @@ function formatSearchResult(
 
 server.tool(
     "get_procurement_status",
-    "Show which retailer providers are configured, the eBay marketplace, and non-secret destination defaults. Does not expose API credentials.",
+    "Show configured retailer credentials, routed marketplace fallbacks, the eBay marketplace, and non-secret destination defaults. Does not expose API credentials.",
     {},
     async () => {
         const result = getConfigurationStatus();
         const enabled = Object.entries(result.providers)
             .filter(([, value]) => value.configured)
             .map(([provider]) => provider);
+        const routed = Object.entries(result.routing)
+            .map(([store, value]) => `${store}: ${value.configuredRoute.join(" -> ") || "none"}`)
+            .join("; ");
 
         return {
             structuredContent: result,
             content: [{
                 type: "text",
-                text: `Configured providers: ${enabled.join(", ") || "none"}. eBay marketplace: ${result.ebayMarketplaceId}.`,
+                text: `Configured direct providers: ${enabled.join(", ") || "none"}. Routed fallbacks: ${routed}. eBay marketplace: ${result.ebayMarketplaceId}.`,
             }],
         };
     },
@@ -127,8 +132,72 @@ server.tool(
 );
 
 server.tool(
+    "search_amazon",
+    "Read-only Amazon deal search with a cache-first free-provider router. Current native route is Bright Data -> ScrapingDog -> HasData -> Apify -> SerpApi -> self-hosted, skipping unconfigured providers. Shared anti-bot capacity is intentionally prioritized for Amazon.",
+    {
+        query: z.string().min(1),
+        limit: z.number().int().min(1).max(50).default(10),
+        min_price: z.number().nonnegative().optional(),
+        max_price: z.number().nonnegative().optional(),
+        ...destinationFields,
+    },
+    async (input) => {
+        const result = await searchMarketplace({
+            store: "amazon",
+            query: input.query,
+            limit: input.limit,
+            minPrice: input.min_price,
+            maxPrice: input.max_price,
+            shipToCountry: input.ship_to_country,
+            shipToPostalCode: input.ship_to_postal_code,
+        });
+        const warnings = result.providerFailures.map((failure) => `${failure.provider} failed: ${failure.error}`);
+        const heading = result.sourceUsed
+            ? `Found ${result.returned} Amazon listings via ${result.sourceUsed}${result.cacheHit ? " (cache)" : ""}.`
+            : "Every configured Amazon provider failed or returned no usable listings.";
+        return {
+            structuredContent: result,
+            content: [{ type: "text", text: formatSearchResult(heading, result.listings, warnings) }],
+            isError: result.sourceUsed === null,
+        };
+    },
+);
+
+server.tool(
+    "search_aliexpress",
+    "Read-only AliExpress deal search with cache-first fallback routing. Priority is official Affiliate API -> Apify -> self-hosted before consuming shared Bright Data/HasData capacity. Trial providers remain reserve-only routing metadata until a structured adapter is configured.",
+    {
+        query: z.string().min(1),
+        limit: z.number().int().min(1).max(50).default(10),
+        min_price: z.number().nonnegative().optional(),
+        max_price: z.number().nonnegative().optional(),
+        ...destinationFields,
+    },
+    async (input) => {
+        const result = await searchMarketplace({
+            store: "aliexpress",
+            query: input.query,
+            limit: input.limit,
+            minPrice: input.min_price,
+            maxPrice: input.max_price,
+            shipToCountry: input.ship_to_country,
+            shipToPostalCode: input.ship_to_postal_code,
+        });
+        const warnings = result.providerFailures.map((failure) => `${failure.provider} failed: ${failure.error}`);
+        const heading = result.sourceUsed
+            ? `Found ${result.returned} AliExpress listings via ${result.sourceUsed}${result.cacheHit ? " (cache)" : ""}.`
+            : "Every configured AliExpress provider failed or returned no usable listings.";
+        return {
+            structuredContent: result,
+            content: [{ type: "text", text: formatSearchResult(heading, result.listings, warnings) }],
+            isError: result.sourceUsed === null,
+        };
+    },
+);
+
+server.tool(
     "search_ebay",
-    "Read-only eBay procurement search. Returns direct listing links and ranks by item price plus the lowest returned shipping cost. Ask the user for destination country and postal code before relying on shipping totals.",
+    "Read-only eBay procurement search. Searches a larger eBay candidate pool, retries transient provider failures, and ranks by delivered cost, query match, seller quality, returns, shipping certainty, and listing-risk signals. Ask the user for destination country and postal code before relying on shipping totals.",
     {
         query: z.string().min(1),
         limit: z.number().int().min(1).max(50).default(10),
@@ -147,7 +216,7 @@ server.tool(
         ...destinationFields,
     },
     async (input) => {
-        const result = await searchEbay({
+        const result = await searchEbaySmart({
             query: input.query,
             limit: input.limit,
             minPrice: input.min_price,
@@ -171,7 +240,7 @@ server.tool(
             content: [{
                 type: "text",
                 text: formatSearchResult(
-                    `Found ${result.returned} eBay listings.`,
+                    `Found ${result.returned} eBay listings ranked for deal quality.`,
                     result.listings,
                     result.shippingWarning ? [result.shippingWarning] : [],
                 ),

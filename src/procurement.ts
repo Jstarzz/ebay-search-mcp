@@ -1,7 +1,7 @@
 import { searchBestBuy } from "./bestbuy.js";
 import type { NormalizedListing } from "./common.js";
 import { getConfiguredProviders, type ProcurementProvider } from "./config.js";
-import { searchEbay } from "./ebay.js";
+import { searchEbaySmart } from "./smart-ebay.js";
 
 export type HardwareSearchOptions = {
     query: string;
@@ -79,7 +79,7 @@ export async function searchHardware(options: HardwareSearchOptions): Promise<{
 
     const jobs = providers.map(async (provider) => {
         if (provider === "ebay") {
-            const result = await searchEbay({
+            const result = await searchEbaySmart({
                 query: options.query,
                 limit: perProviderLimit,
                 minPrice: options.minPrice,
