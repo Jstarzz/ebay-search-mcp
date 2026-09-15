@@ -12,7 +12,8 @@ const trackingParams = new Set([
 
 function truncate(value: string, maximum: number): string {
     const points = Array.from(value.replace(/\s+/g, " ").trim());
-    return points.length <= maximum ? points.join("") : `${points.slice(0, maximum - 1).join("")}…`;
+    if (points.length <= maximum) return points.join("");
+    return `${points.slice(0, Math.max(0, maximum - 3)).join("")}...`;
 }
 
 export function compactProductURL(value: string): string {
