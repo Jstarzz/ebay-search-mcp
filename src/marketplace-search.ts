@@ -11,6 +11,7 @@ import {
     type NormalizedListing,
 } from "./common.js";
 import { getConfiguredRoute, type ProviderId } from "./provider-routing.js";
+import { searchSelfHostedScraper } from "./selfhosted.js";
 
 export type RoutedStore = Extract<ListingStore, "amazon" | "aliexpress">;
 
@@ -67,7 +68,8 @@ function env(name: string): string | undefined {
 }
 
 function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+    return message.replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 function first(record: Record<string, unknown>, keys: string[]): unknown {
@@ -158,6 +160,7 @@ function normalizeRow(
     const imageUrl = textOrNull(first(row, ["main_image", "image", "imageUrl", "image_url", "thumbnail"]));
     const rating = toNumberOrNull(first(row, ["rating", "stars", "evaluate_rate"]));
     const reviewCount = toNumberOrNull(first(row, ["reviews_count", "reviews", "reviewCount", "ratings_total"]));
+    const sponsored = first(row, ["isSponsored", "is_sponsored", "sponsored"]);
 
     return {
         provider: store,
@@ -180,10 +183,9 @@ function normalizeRow(
         availability: textOrNull(first(row, ["availability", "stock", "stock_status"])),
         metadata: {
             sourceProvider: source,
-            rating,
-            reviewCount,
-            sponsored: first(row, ["isSponsored", "is_sponsored", "sponsored"]) ?? null,
-            raw: row,
+            ...(rating !== null ? { rating } : {}),
+            ...(reviewCount !== null ? { reviewCount } : {}),
+            ...(typeof sponsored === "boolean" ? { sponsored } : {}),
         },
     };
 }
@@ -374,23 +376,11 @@ async function searchAliExpressOfficial(options: MarketplaceSearchOptions): Prom
 }
 
 async function searchSelfHosted(options: MarketplaceSearchOptions): Promise<NormalizedListing[]> {
-    const source: ProviderId = options.store === "amazon" ? "amazon-selfhosted" : "aliexpress-selfhosted";
-    const endpoint = env(options.store === "amazon" ? "AMAZON_SELFHOSTED_URL" : "ALIEXPRESS_SELFHOSTED_URL");
-    if (!endpoint) throw new Error(`${options.store} self-hosted endpoint is not configured`);
-
-    const payload = await fetchJson(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            query: options.query,
-            limit: options.limit ?? 10,
-            minPrice: options.minPrice,
-            maxPrice: options.maxPrice,
-            shipToCountry: options.shipToCountry,
-            shipToPostalCode: options.shipToPostalCode,
-        }),
+    return searchSelfHostedScraper({
+        marketplace: options.store,
+        query: options.query,
+        limit: options.limit ?? 10,
     });
-    return normalizeRows(options.store, source, payload);
 }
 
 async function executeProvider(provider: ProviderId, options: MarketplaceSearchOptions): Promise<NormalizedListing[]> {
@@ -463,7 +453,7 @@ export async function searchMarketplace(options: MarketplaceSearchOptions): Prom
         try {
             const candidateListings = filterAndDedupe(await executeProvider(provider, normalizedOptions), normalizedOptions);
             if (candidateListings.length === 0) {
-                providerFailures.push({ provider, error: "provider returned no usable structured listings" });
+                providerFailures.push({ provider, error: "no usable listings" });
                 continue;
             }
             sourceUsed = provider;
