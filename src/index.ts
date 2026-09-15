@@ -5,7 +5,7 @@ import { getBestBuyOpenBox, getBestBuyProduct, searchBestBuy } from "./bestbuy.j
 import { getEbayItem } from "./ebay.js";
 import { registerLegacyTools } from "./legacy-tools.js";
 import { compactSearchPayload, searchSummary } from "./mcp-output.js";
-import { searchMarketplace } from "./marketplace-search.js";
+import { searchMarketplace } from "./marketplace-router.js";
 import { RequestFilterError, requireFilteredSearchRequest } from "./request-filter.js";
 import { searchEbaySmart } from "./smart-ebay.js";
 
