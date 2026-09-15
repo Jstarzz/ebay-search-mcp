@@ -15,7 +15,28 @@ MCP client / model
   -> compact MCP response
 ```
 
-The deterministic filter runs before provider network I/O. The self-hosted scraper independently applies its own matching `search-v1` policy before it creates a job, so direct calls to the scraper do not bypass the gate.
+The deterministic filter runs before provider network I/O. The self-hosted scraper independently applies its matching `search-v1` policy before it creates a job, so direct scraper calls do not bypass the gate.
+
+## Lean MCP surface
+
+The default MCP exposes only two tools:
+
+| Tool | Purpose |
+|---|---|
+| `search_products` | Search eBay, Amazon, AliExpress, or Best Buy |
+| `get_product` | Get one eBay/Best Buy item; optionally request Best Buy open-box offers |
+
+This is intentional. Tool definitions are model context too. Keeping five overlapping search tools plus several detail/status tools would impose a static token tax before any result is returned.
+
+For compatibility/debugging, set:
+
+```env
+MCP_LEGACY_TOOLS=1
+```
+
+That additionally exposes the previous provider-specific tool set. It is off by default.
+
+Provider exception details are also hidden from model context by default. Set `MCP_DEBUG_ERRORS=1` only while debugging; details are still length-bounded.
 
 ## Deterministic search gate
 
@@ -59,29 +80,28 @@ X-Search-Policy-Version: search-v1
   "marketplace": "amazon",
   "query": "esp32 display",
   "limit": 6,
-  "wait_ms": 10000
+  "wait_ms": 0
 }
 ```
 
-If the API returns `202`, the MCP polls `GET /v1/jobs/:id` until the job completes or the total self-hosted budget expires. Scraper listing values such as `price_minor` and `shipping_minor` are converted from minor currency units before ranking/output.
+The MCP intentionally uses async job creation and polls `GET /v1/jobs/:id` at 1 Hz until completion or the total self-hosted timeout expires. The scraper job endpoint is authenticated but designed as a cheap status read rather than new scrape work. Scraper values such as `price_minor` and `shipping_minor` are converted from minor currency units before ranking/output.
 
 ## Token/context budget
 
-Search tools are deliberately compact because MCP tool output becomes model context.
+Search output is deliberately compact because MCP tool definitions and tool results both become model context.
 
-- Default search size is 6 listings; the MCP tool maximum is 12.
+- Default search size is 6 listings; maximum is 12.
+- Default tool surface is 2 tools instead of 9 provider-specific tools.
 - Search results are not emitted twice as full JSON plus repeated prose listings.
 - Search text output is one short summary line.
 - Structured results contain only useful model-facing fields.
-- Raw provider rows are not included in ordinary search results.
+- Raw provider rows are excluded from ordinary search results.
 - Null/default fields are omitted.
 - Product titles and warning strings are bounded.
 - Common URL tracking parameters are removed while meaningful query parameters are retained.
-- Provider error strings are bounded and only a small warning set is surfaced.
-- Tool descriptions and schemas are intentionally short.
-- Detailed raw payloads remain opt-in on item-detail tools.
-
-This reduces both repeated context and accidental prompt-size growth when providers return large nested objects.
+- Provider warning/error strings are bounded; provider exception detail is hidden unless debug mode is enabled.
+- Deterministic rejection codes are preserved without echoing suspicious input.
+- Detailed raw payloads are available only through the optional legacy/debug surface.
 
 ## Provider routing
 
@@ -109,20 +129,6 @@ AliExpress:
 ```
 
 Only providers with complete configuration are included in a route. Amazon and AliExpress routed results use a five-minute in-process cache keyed by store, query, price range, destination, and result limit.
-
-## Tools
-
-| Tool | Purpose |
-|---|---|
-| `get_procurement_status` | Compact configured provider/route status |
-| `search_hardware` | Search eBay and/or Best Buy and rank a shortlist |
-| `search_amazon` | Routed Amazon product search |
-| `search_aliexpress` | Routed AliExpress product search |
-| `search_ebay` | eBay search with deal ranking and self-hosted fallback |
-| `get_ebay_item` | One detailed eBay item lookup |
-| `search_bestbuy` | Best Buy catalog search |
-| `get_bestbuy_product` | One Best Buy product lookup |
-| `get_bestbuy_open_box` | Best Buy open-box lookup |
 
 ## Setup
 
@@ -162,4 +168,4 @@ After pulling changes, run `npm install && npm run build` and restart the MCP cl
 
 ## CI
 
-Pull requests and `main` build/test on Node 20 and Node 22 across Linux and Windows. The package is also packed on the release-capable matrix leg to catch missing distribution files.
+Pull requests and `main` build/test on Node 20 and Node 22 across Linux and Windows. The protocol test locks the default tool list to the lean two-tool surface. The package is also packed on the release-capable matrix leg.
