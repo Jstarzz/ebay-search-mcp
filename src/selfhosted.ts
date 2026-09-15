@@ -3,8 +3,7 @@ import { addMoney, isRecord, type ListingStore, type NormalizedListing, textOrNu
 export const SEARCH_POLICY_VERSION = "search-v1";
 
 const TOTAL_TIMEOUT_MS = 24_000;
-const INITIAL_WAIT_MS = 10_000;
-const POLL_INTERVAL_MS = 250;
+const POLL_INTERVAL_MS = 1_000;
 
 type ScraperMarketplace = Extract<ListingStore, "amazon" | "aliexpress" | "ebay">;
 
@@ -133,7 +132,7 @@ async function requestJob(config: ScraperConfig, options: SelfHostedSearchOption
             marketplace: options.marketplace,
             query: options.query,
             limit: Math.min(Math.max(options.limit, 1), 100),
-            wait_ms: Math.min(INITIAL_WAIT_MS, remainingTimeout(deadline)),
+            wait_ms: 0,
         }),
         signal: AbortSignal.timeout(remainingTimeout(deadline)),
     });
