@@ -72,7 +72,7 @@ function jobURL(searchEndpoint: URL, jobID: string): URL {
     return url;
 }
 
-function headers(apiKey: string, includeJSON = false): HeadersInit {
+function headers(apiKey: string, includeJSON = false): Record<string, string> {
     return {
         Accept: "application/json",
         Authorization: `Bearer ${apiKey}`,
