@@ -127,9 +127,9 @@ test("stdio server writes only JSON-RPC messages to stdout", { timeout: 8000 }, 
     assert.equal(failedProviderResponse.jsonrpc, "2.0");
     assert.equal(failedProviderResponse.id, 3);
     assert.equal(failedProviderResponse.result?.isError, true);
-    assert.match(
-        failedProviderResponse.result?.content?.[0]?.text ?? "",
-        /Search failed for every requested provider/,
+    assert.equal(
+        failedProviderResponse.result?.content?.[0]?.text,
+        "hardware search failed.",
     );
 
     for (const line of lines) {
