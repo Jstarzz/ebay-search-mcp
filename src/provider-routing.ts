@@ -39,7 +39,7 @@ export const providerDefinitions: Record<ProviderId, ProviderDefinition> = {
     "ebay-selfhosted": {
         id: "ebay-selfhosted", providerClass: "self-hosted", recurringMonthlyAllowance: null,
         sharedAllowanceGroup: null, preserveForAmazon: false,
-        envKeys: ["EBAY_SELFHOSTED_URL"], notes: "Overflow/fallback eBay scraper endpoint.",
+        envKeys: [], notes: "Shared authenticated web-scraper fallback for eBay.",
     },
     "bright-data": {
         id: "bright-data", providerClass: "recurring-free", recurringMonthlyAllowance: 5000,
@@ -69,7 +69,7 @@ export const providerDefinitions: Record<ProviderId, ProviderDefinition> = {
     "amazon-selfhosted": {
         id: "amazon-selfhosted", providerClass: "self-hosted", recurringMonthlyAllowance: null,
         sharedAllowanceGroup: null, preserveForAmazon: false,
-        envKeys: ["AMAZON_SELFHOSTED_URL"], notes: "Overflow/fallback Amazon scraper endpoint.",
+        envKeys: [], notes: "Shared authenticated web-scraper fallback for Amazon.",
     },
     "aliexpress-official": {
         id: "aliexpress-official", providerClass: "official", recurringMonthlyAllowance: null,
@@ -79,7 +79,7 @@ export const providerDefinitions: Record<ProviderId, ProviderDefinition> = {
     "aliexpress-selfhosted": {
         id: "aliexpress-selfhosted", providerClass: "self-hosted", recurringMonthlyAllowance: null,
         sharedAllowanceGroup: null, preserveForAmazon: false,
-        envKeys: ["ALIEXPRESS_SELFHOSTED_URL"], notes: "Cheap local fallback before consuming shared anti-bot capacity.",
+        envKeys: [], notes: "Shared authenticated web-scraper fallback for AliExpress.",
     },
     oxylabs: trialProvider("oxylabs", "OXYLABS_API_KEY"),
     scrapingbee: trialProvider("scrapingbee", "SCRAPINGBEE_API_KEY"),
@@ -111,7 +111,24 @@ function hasEnv(env: ProviderEnvironment, key: string): boolean {
     return Boolean(env[key]?.trim());
 }
 
+function selfHostedStore(provider: ProviderId): Store | null {
+    if (provider === "ebay-selfhosted") return "ebay";
+    if (provider === "amazon-selfhosted") return "amazon";
+    if (provider === "aliexpress-selfhosted") return "aliexpress";
+    return null;
+}
+
+function selfHostedConfigured(store: Store, env: ProviderEnvironment): boolean {
+    const prefix = store.toUpperCase();
+    const hasURL = hasEnv(env, "SELFHOSTED_SCRAPER_URL") || hasEnv(env, `${prefix}_SELFHOSTED_URL`);
+    const hasKey = hasEnv(env, "SELFHOSTED_SCRAPER_API_KEY") || hasEnv(env, `${prefix}_SELFHOSTED_API_KEY`);
+    return hasURL && hasKey;
+}
+
 export function isProviderConfigured(provider: ProviderId, env: ProviderEnvironment = process.env, store?: Store): boolean {
+    const hostedStore = selfHostedStore(provider);
+    if (hostedStore) return selfHostedConfigured(hostedStore, env);
+
     const baseConfigured = providerDefinitions[provider].envKeys.every((key) => hasEnv(env, key));
     if (!baseConfigured) return false;
 
