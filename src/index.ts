@@ -6,7 +6,7 @@ import { getEbayItem } from "./ebay.js";
 import { registerLegacyTools } from "./legacy-tools.js";
 import { compactSearchPayload, searchSummary } from "./mcp-output.js";
 import { searchMarketplace } from "./marketplace-search.js";
-import { requireFilteredSearchRequest } from "./request-filter.js";
+import { RequestFilterError, requireFilteredSearchRequest } from "./request-filter.js";
 import { searchEbaySmart } from "./smart-ebay.js";
 
 const server = new McpServer({
@@ -19,10 +19,33 @@ const destinationFields = {
     ship_to_country: z.string().length(2).optional(),
     ship_to_postal_code: z.string().min(1).max(32).optional(),
 };
+const debugErrors = process.env.MCP_DEBUG_ERRORS?.trim() === "1";
 
 function sourceFromListings(listings: Array<{ metadata: Record<string, unknown> }>, fallback: string): string {
     const source = listings[0]?.metadata.sourceProvider;
     return typeof source === "string" && source ? source : fallback;
+}
+
+function compactErrorMessage(error: unknown): string {
+    const raw = error instanceof Error ? error.message : String(error);
+    const compact = raw.replace(/\s+/g, " ").trim();
+    return compact.length <= 180 ? compact : `${compact.slice(0, 177)}...`;
+}
+
+function toolFailure(label: string, error: unknown): {
+    structuredContent: Record<string, unknown>;
+    content: Array<{ type: "text"; text: string }>;
+    isError: true;
+} {
+    const code = error instanceof RequestFilterError ? error.code : "request_failed";
+    return {
+        structuredContent: {
+            error: code,
+            ...(debugErrors ? { detail: compactErrorMessage(error) } : {}),
+        },
+        content: [{ type: "text", text: `${label} failed.` }],
+        isError: true,
+    };
 }
 
 server.tool(
@@ -37,94 +60,105 @@ server.tool(
         ...destinationFields,
     },
     async (input) => {
-        const filtered = requireFilteredSearchRequest({
-            query: input.query,
-            minPrice: input.min_price,
-            maxPrice: input.max_price,
-            shipToCountry: input.ship_to_country,
-            shipToPostalCode: input.ship_to_postal_code,
-        });
+        const label = input.marketplace === "amazon"
+            ? "Amazon search"
+            : input.marketplace === "aliexpress"
+                ? "AliExpress search"
+                : input.marketplace === "ebay"
+                    ? "eBay search"
+                    : "Best Buy search";
+        try {
+            const filtered = requireFilteredSearchRequest({
+                query: input.query,
+                minPrice: input.min_price,
+                maxPrice: input.max_price,
+                shipToCountry: input.ship_to_country,
+                shipToPostalCode: input.ship_to_postal_code,
+            });
 
-        if (input.marketplace === "amazon" || input.marketplace === "aliexpress") {
-            const result = await searchMarketplace({
-                store: input.marketplace,
+            if (input.marketplace === "amazon" || input.marketplace === "aliexpress") {
+                const result = await searchMarketplace({
+                    store: input.marketplace,
+                    query: filtered.query,
+                    limit: input.limit,
+                    minPrice: filtered.minPrice,
+                    maxPrice: filtered.maxPrice,
+                    shipToCountry: filtered.shipToCountry,
+                    shipToPostalCode: filtered.shipToPostalCode,
+                });
+                const warnings = result.providerFailures.map((failure) => `${failure.provider}: ${failure.error}`);
+                const resultLabel = input.marketplace === "amazon" ? "Amazon" : "AliExpress";
+                return {
+                    structuredContent: compactSearchPayload({
+                        query: result.query,
+                        listings: result.listings,
+                        source: result.sourceUsed,
+                        cacheHit: result.cacheHit,
+                        warnings,
+                    }),
+                    content: [{ type: "text" as const, text: searchSummary({
+                        label: resultLabel,
+                        count: result.returned,
+                        source: result.sourceUsed,
+                        cacheHit: result.cacheHit,
+                        failed: result.sourceUsed === null,
+                    }) }],
+                    isError: result.sourceUsed === null,
+                };
+            }
+
+            if (input.marketplace === "ebay") {
+                const result = await searchEbaySmart({
+                    query: filtered.query,
+                    limit: input.limit,
+                    minPrice: filtered.minPrice,
+                    maxPrice: filtered.maxPrice,
+                    currency: "USD",
+                    shipToCountry: filtered.shipToCountry,
+                    shipToPostalCode: filtered.shipToPostalCode,
+                    sort: "best_match",
+                    rankByTotalCost: true,
+                });
+                const source = sourceFromListings(result.listings, "ebay");
+                return {
+                    structuredContent: compactSearchPayload({
+                        query: result.query,
+                        listings: result.listings,
+                        source,
+                        warnings: result.shippingWarning ? [result.shippingWarning] : [],
+                    }),
+                    content: [{ type: "text" as const, text: searchSummary({
+                        label: "eBay",
+                        count: result.returned,
+                        source,
+                    }) }],
+                };
+            }
+
+            const result = await searchBestBuy({
                 query: filtered.query,
                 limit: input.limit,
                 minPrice: filtered.minPrice,
                 maxPrice: filtered.maxPrice,
-                shipToCountry: filtered.shipToCountry,
-                shipToPostalCode: filtered.shipToPostalCode,
+                onlineOnly: true,
+                sort: "relevance",
             });
-            const warnings = result.providerFailures.map((failure) => `${failure.provider}: ${failure.error}`);
-            const label = input.marketplace === "amazon" ? "Amazon" : "AliExpress";
             return {
                 structuredContent: compactSearchPayload({
                     query: result.query,
                     listings: result.listings,
-                    source: result.sourceUsed,
-                    cacheHit: result.cacheHit,
-                    warnings,
+                    source: "bestbuy",
+                    warnings: [result.shippingWarning],
                 }),
                 content: [{ type: "text" as const, text: searchSummary({
-                    label,
+                    label: "Best Buy",
                     count: result.returned,
-                    source: result.sourceUsed,
-                    cacheHit: result.cacheHit,
-                    failed: result.sourceUsed === null,
-                }) }],
-                isError: result.sourceUsed === null,
-            };
-        }
-
-        if (input.marketplace === "ebay") {
-            const result = await searchEbaySmart({
-                query: filtered.query,
-                limit: input.limit,
-                minPrice: filtered.minPrice,
-                maxPrice: filtered.maxPrice,
-                currency: "USD",
-                shipToCountry: filtered.shipToCountry,
-                shipToPostalCode: filtered.shipToPostalCode,
-                sort: "best_match",
-                rankByTotalCost: true,
-            });
-            const source = sourceFromListings(result.listings, "ebay");
-            return {
-                structuredContent: compactSearchPayload({
-                    query: result.query,
-                    listings: result.listings,
-                    source,
-                    warnings: result.shippingWarning ? [result.shippingWarning] : [],
-                }),
-                content: [{ type: "text" as const, text: searchSummary({
-                    label: "eBay",
-                    count: result.returned,
-                    source,
+                    source: "bestbuy",
                 }) }],
             };
+        } catch (error) {
+            return toolFailure(label, error);
         }
-
-        const result = await searchBestBuy({
-            query: filtered.query,
-            limit: input.limit,
-            minPrice: filtered.minPrice,
-            maxPrice: filtered.maxPrice,
-            onlineOnly: true,
-            sort: "relevance",
-        });
-        return {
-            structuredContent: compactSearchPayload({
-                query: result.query,
-                listings: result.listings,
-                source: "bestbuy",
-                warnings: [result.shippingWarning],
-            }),
-            content: [{ type: "text" as const, text: searchSummary({
-                label: "Best Buy",
-                count: result.returned,
-                source: "bestbuy",
-            }) }],
-        };
     },
 );
 
@@ -138,32 +172,36 @@ server.tool(
         ...destinationFields,
     },
     async (input) => {
-        if (input.marketplace === "ebay") {
-            if (input.open_box) {
-                throw new Error("open_box is only supported for Best Buy");
+        try {
+            if (input.marketplace === "ebay") {
+                if (input.open_box) {
+                    throw new Error("open_box is only supported for Best Buy");
+                }
+                const result = await getEbayItem(
+                    input.id_or_url,
+                    input.ship_to_country,
+                    input.ship_to_postal_code,
+                    false,
+                );
+                return {
+                    structuredContent: result as Record<string, unknown>,
+                    content: [{ type: "text" as const, text: "eBay item details returned." }],
+                };
             }
-            const result = await getEbayItem(
-                input.id_or_url,
-                input.ship_to_country,
-                input.ship_to_postal_code,
-                false,
-            );
+
+            const result = input.open_box
+                ? await getBestBuyOpenBox(input.id_or_url)
+                : await getBestBuyProduct(input.id_or_url, false);
             return {
                 structuredContent: result as Record<string, unknown>,
-                content: [{ type: "text" as const, text: "eBay item details returned." }],
+                content: [{
+                    type: "text" as const,
+                    text: input.open_box ? "Best Buy open-box offers returned." : "Best Buy product details returned.",
+                }],
             };
+        } catch (error) {
+            return toolFailure("Product lookup", error);
         }
-
-        const result = input.open_box
-            ? await getBestBuyOpenBox(input.id_or_url)
-            : await getBestBuyProduct(input.id_or_url, false);
-        return {
-            structuredContent: result as Record<string, unknown>,
-            content: [{
-                type: "text" as const,
-                text: input.open_box ? "Best Buy open-box offers returned." : "Best Buy product details returned.",
-            }],
-        };
     },
 );
 
