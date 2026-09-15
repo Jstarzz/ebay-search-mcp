@@ -1,7 +1,7 @@
 {
   "name": "ebay-search-mcp",
-  "version": "1.4.0",
-  "description": "Read-only MCP for token-efficient product search across eBay, Amazon, AliExpress, Best Buy, and a shared self-hosted scraper.",
+  "version": "1.5.0",
+  "description": "Read-only token-efficient product search MCP with deterministic filtering and self-hosted scraper fallback.",
   "main": "dist/index.js",
   "files": [
     "dist/",
