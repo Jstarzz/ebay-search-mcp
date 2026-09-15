@@ -12,6 +12,7 @@ import {
 } from "./format.js";
 import { searchMarketplace } from "./marketplace-search.js";
 import { searchHardware } from "./procurement.js";
+import { requireFilteredSearchRequest } from "./request-filter.js";
 import { searchEbaySmart } from "./smart-ebay.js";
 
 const server = new McpServer({
@@ -97,14 +98,21 @@ server.tool(
         ...destinationFields,
     },
     async (input) => {
-        const result = await searchHardware({
+        const filtered = requireFilteredSearchRequest({
             query: input.query,
-            providers: input.providers,
-            limit: input.limit,
             minPrice: input.min_price,
             maxPrice: input.max_price,
             shipToCountry: input.ship_to_country,
             shipToPostalCode: input.ship_to_postal_code,
+        });
+        const result = await searchHardware({
+            query: filtered.query,
+            providers: input.providers,
+            limit: input.limit,
+            minPrice: filtered.minPrice,
+            maxPrice: filtered.maxPrice,
+            shipToCountry: filtered.shipToCountry,
+            shipToPostalCode: filtered.shipToPostalCode,
             ebayConditions: input.ebay_conditions,
             ebayBuyingOptions: input.ebay_buying_options,
             returnsAccepted: input.returns_accepted,
@@ -142,14 +150,21 @@ server.tool(
         ...destinationFields,
     },
     async (input) => {
-        const result = await searchMarketplace({
-            store: "amazon",
+        const filtered = requireFilteredSearchRequest({
             query: input.query,
-            limit: input.limit,
             minPrice: input.min_price,
             maxPrice: input.max_price,
             shipToCountry: input.ship_to_country,
             shipToPostalCode: input.ship_to_postal_code,
+        });
+        const result = await searchMarketplace({
+            store: "amazon",
+            query: filtered.query,
+            limit: input.limit,
+            minPrice: filtered.minPrice,
+            maxPrice: filtered.maxPrice,
+            shipToCountry: filtered.shipToCountry,
+            shipToPostalCode: filtered.shipToPostalCode,
         });
         const warnings = result.providerFailures.map((failure) => `${failure.provider} failed: ${failure.error}`);
         const heading = result.sourceUsed
@@ -174,14 +189,21 @@ server.tool(
         ...destinationFields,
     },
     async (input) => {
-        const result = await searchMarketplace({
-            store: "aliexpress",
+        const filtered = requireFilteredSearchRequest({
             query: input.query,
-            limit: input.limit,
             minPrice: input.min_price,
             maxPrice: input.max_price,
             shipToCountry: input.ship_to_country,
             shipToPostalCode: input.ship_to_postal_code,
+        });
+        const result = await searchMarketplace({
+            store: "aliexpress",
+            query: filtered.query,
+            limit: input.limit,
+            minPrice: filtered.minPrice,
+            maxPrice: filtered.maxPrice,
+            shipToCountry: filtered.shipToCountry,
+            shipToPostalCode: filtered.shipToPostalCode,
         });
         const warnings = result.providerFailures.map((failure) => `${failure.provider} failed: ${failure.error}`);
         const heading = result.sourceUsed
@@ -216,11 +238,18 @@ server.tool(
         ...destinationFields,
     },
     async (input) => {
-        const result = await searchEbaySmart({
+        const filtered = requireFilteredSearchRequest({
             query: input.query,
-            limit: input.limit,
             minPrice: input.min_price,
             maxPrice: input.max_price,
+            shipToCountry: input.ship_to_country,
+            shipToPostalCode: input.ship_to_postal_code,
+        });
+        const result = await searchEbaySmart({
+            query: filtered.query,
+            limit: input.limit,
+            minPrice: filtered.minPrice,
+            maxPrice: filtered.maxPrice,
             currency: input.currency.toUpperCase(),
             conditions: input.conditions,
             conditionIds: input.condition_ids,
@@ -228,8 +257,8 @@ server.tool(
             returnsAccepted: input.returns_accepted,
             freeShipping: input.free_shipping,
             itemLocationCountry: input.item_location_country,
-            shipToCountry: input.ship_to_country,
-            shipToPostalCode: input.ship_to_postal_code,
+            shipToCountry: filtered.shipToCountry,
+            shipToPostalCode: filtered.shipToPostalCode,
             categoryId: input.category_id,
             sort: input.sort,
             rankByTotalCost: input.rank_by_total_cost,
@@ -283,11 +312,16 @@ server.tool(
         sort: z.enum(["relevance", "price_low", "price_high", "rating_high"]).default("relevance"),
     },
     async (input) => {
-        const result = await searchBestBuy({
+        const filtered = requireFilteredSearchRequest({
             query: input.query,
-            limit: input.limit,
             minPrice: input.min_price,
             maxPrice: input.max_price,
+        });
+        const result = await searchBestBuy({
+            query: filtered.query,
+            limit: input.limit,
+            minPrice: filtered.minPrice,
+            maxPrice: filtered.maxPrice,
             onlineOnly: input.online_only,
             sort: input.sort,
         });

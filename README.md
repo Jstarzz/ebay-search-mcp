@@ -4,13 +4,21 @@ A local, read-only MCP server for finding hardware and shopping listings with di
 
 ## What it supports
 
-- **eBay** — official Browse API first, with smart deal ranking, transient-error retries, and an optional self-hosted scraper fallback in the routing policy.
-- **Amazon** — cache-first routing across Bright Data, ScrapingDog, HasData, Apify, SerpApi, reserve providers, and self-hosted overflow.
-- **AliExpress** — cache-first routing across the official Affiliate API, Apify, self-hosted scraping, shared Bright Data/HasData capacity, and reserve providers.
-- **Best Buy** — official Products API, product details, shipping fields, ratings, and open-box lookup.
-- **Normalized results** — provider-specific payloads are converted into one listing shape so downstream formatting and ranking do not need provider-specific branches.
+- **eBay** - official Browse API first, with smart deal ranking, transient-error retries, and an optional self-hosted scraper fallback in the routing policy.
+- **Amazon** - cache-first routing across Bright Data, ScrapingDog, HasData, Apify, SerpApi, reserve providers, and self-hosted overflow.
+- **AliExpress** - cache-first routing across the official Affiliate API, Apify, self-hosted scraping, shared Bright Data/HasData capacity, and reserve providers.
+- **Best Buy** - official Products API, product details, shipping fields, ratings, and open-box lookup.
+- **Normalized results** - provider-specific payloads are converted into one listing shape so downstream formatting and ranking do not need provider-specific branches.
 
 It never adds items to a cart, checks out, bids, places orders, or changes retailer accounts.
+
+## Deterministic request gate
+
+Every search tool passes through a pure deterministic filter before any retailer API, paid scraping provider, or self-hosted scraper request is made. The filter does not call an AI model and does not perform network I/O.
+
+Benign input is normalized with Unicode NFKC normalization, whitespace collapse, destination-country uppercasing, and postal-code trimming. The request is rejected before provider routing when it contains hidden/control characters, URLs in a search query, credential-shaped values, prompt-injection style instructions, internal/metadata targets, excessive query size, invalid price values or ranges, or invalid destination fields.
+
+The reusable implementation is in `src/request-filter.ts`. A separate gateway can import the same function if filtering must happen before an upstream LLM sees a request. Inside this MCP, the gate runs after the MCP client has chosen a tool but before any external shopping/search endpoint is contacted.
 
 ## Provider routing policy
 
