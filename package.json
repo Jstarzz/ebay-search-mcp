@@ -1,7 +1,7 @@
 {
   "name": "ebay-search-mcp",
-  "version": "1.3.0",
-  "description": "Read-only local MCP for hardware procurement across eBay and Best Buy.",
+  "version": "1.5.0",
+  "description": "Read-only token-efficient product search MCP with deterministic filtering and self-hosted scraper fallback.",
   "main": "dist/index.js",
   "files": [
     "dist/",
@@ -21,6 +21,8 @@
   "keywords": [
     "mcp",
     "ebay",
+    "amazon",
+    "aliexpress",
     "bestbuy",
     "hardware",
     "procurement"

@@ -32,11 +32,27 @@ test("configured route removes unavailable providers without changing priority",
         APIFY_TOKEN: "apify",
         APIFY_AMAZON_ACTOR_ID: "actor",
         AMAZON_SELFHOSTED_URL: "http://127.0.0.1:3001",
+        AMAZON_SELFHOSTED_API_KEY: "key",
     };
 
     assert.deepEqual(getConfiguredRoute("amazon", env), [
         "bright-data", "scrapingdog", "apify", "amazon-selfhosted",
     ]);
+});
+
+test("one shared scraper URL and key configure every self-hosted route", () => {
+    const env: ProviderEnvironment = {
+        SELFHOSTED_SCRAPER_URL: "https://scraper.example.test",
+        SELFHOSTED_SCRAPER_API_KEY: "key",
+    };
+    assert.deepEqual(getConfiguredRoute("ebay", env), ["ebay-selfhosted"]);
+    assert.deepEqual(getConfiguredRoute("amazon", env), ["amazon-selfhosted"]);
+    assert.deepEqual(getConfiguredRoute("aliexpress", env), ["aliexpress-selfhosted"]);
+});
+
+test("self-hosted routes require both endpoint and bearer key", () => {
+    assert.deepEqual(getConfiguredRoute("amazon", { SELFHOSTED_SCRAPER_URL: "https://scraper.example.test" }), []);
+    assert.deepEqual(getConfiguredRoute("amazon", { SELFHOSTED_SCRAPER_API_KEY: "key" }), []);
 });
 
 test("Apify requires a store-specific actor ID", () => {

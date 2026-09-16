@@ -11,6 +11,7 @@ import {
     type NormalizedListing,
 } from "./common.js";
 import { getConfiguredRoute, type ProviderId } from "./provider-routing.js";
+import { searchSelfHostedScraper } from "./selfhosted.js";
 
 export type RoutedStore = Extract<ListingStore, "amazon" | "aliexpress">;
 
@@ -78,7 +79,8 @@ function envInt(name: string, fallback: number, minimum: number, maximum: number
 }
 
 function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+    return message.replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 function first(record: Record<string, unknown>, keys: string[]): unknown {
@@ -174,11 +176,8 @@ function normalizeRow(
     const sellerName = textOrNull(first(row, ["seller_name", "sellerName", "seller", "store_name", "storeName", "shop_name"]));
     const imageUrl = textOrNull(first(row, ["main_image", "image", "imageUrl", "image_url", "thumbnail"]));
     const rating = toNumberOrNull(first(row, ["rating", "stars", "evaluate_rate"]));
-    const reviewCount = toNumberOrNull(first(row, ["reviews_count", "reviews", "reviewCount", "review_count", "ratings_total"]));
-    const soldCount = toNumberOrNull(first(row, ["sold_count", "soldCount", "orders", "orders_count"]));
-    const rawAvailability = textOrNull(first(row, ["availability", "stock", "stock_status"]));
-    const available = first(row, ["available", "in_stock", "inStock"]);
-    const availability = rawAvailability ?? (typeof available === "boolean" ? (available ? "available" : "unavailable") : null);
+    const reviewCount = toNumberOrNull(first(row, ["reviews_count", "reviews", "reviewCount", "ratings_total"]));
+    const sponsored = first(row, ["isSponsored", "is_sponsored", "sponsored"]);
 
     return {
         provider: store,
@@ -201,11 +200,9 @@ function normalizeRow(
         availability,
         metadata: {
             sourceProvider: source,
-            rating,
-            reviewCount,
-            soldCount,
-            sponsored: first(row, ["isSponsored", "is_sponsored", "sponsored"]) ?? null,
-            raw: row,
+            ...(rating !== null ? { rating } : {}),
+            ...(reviewCount !== null ? { reviewCount } : {}),
+            ...(typeof sponsored === "boolean" ? { sponsored } : {}),
         },
     };
 }
@@ -460,40 +457,11 @@ async function pollSelfHostedJob(
 }
 
 async function searchSelfHosted(options: MarketplaceSearchOptions): Promise<NormalizedListing[]> {
-    const source: ProviderId = options.store === "amazon" ? "amazon-selfhosted" : "aliexpress-selfhosted";
-    const endpoint = env(options.store === "amazon" ? "AMAZON_SELFHOSTED_URL" : "ALIEXPRESS_SELFHOSTED_URL");
-    if (!endpoint) throw new Error(`${options.store} self-hosted endpoint is not configured`);
-
-    const totalTimeout = envInt("SELFHOSTED_TOTAL_TIMEOUT_MS", SELF_HOSTED_TOTAL_TIMEOUT_MS, 5_000, 120_000);
-    const waitMS = envInt("SELFHOSTED_WAIT_MS", SELF_HOSTED_WAIT_MS, 0, 30_000);
-    const deadline = Date.now() + totalTimeout;
-    const response = await fetch(endpoint, {
-        method: "POST",
-        headers: selfHostedHeaders(options.store),
-        body: JSON.stringify({
-            marketplace: options.store,
-            query: options.query,
-            limit: options.limit ?? 10,
-            wait_ms: waitMS,
-            minPrice: options.minPrice,
-            maxPrice: options.maxPrice,
-            shipToCountry: options.shipToCountry,
-            shipToPostalCode: options.shipToPostalCode,
-        }),
-        signal: AbortSignal.timeout(totalTimeout),
+    return searchSelfHostedScraper({
+        marketplace: options.store,
+        query: options.query,
+        limit: options.limit ?? 10,
     });
-    if (!response.ok) {
-        throw new HTTPError(response.status, await readErrorBody(response));
-    }
-
-    let payload: unknown = await response.json();
-    if (response.status === 202 && isPendingJob(payload)) {
-        payload = await pollSelfHostedJob(endpoint, options.store, payload, deadline);
-    } else if (isPendingJob(payload)) {
-        payload = await pollSelfHostedJob(endpoint, options.store, payload, deadline);
-    }
-
-    return normalizeRows(options.store, source, payload);
 }
 
 async function executeProvider(provider: ProviderId, options: MarketplaceSearchOptions): Promise<NormalizedListing[]> {
@@ -566,7 +534,7 @@ export async function searchMarketplace(options: MarketplaceSearchOptions): Prom
         try {
             const candidateListings = filterAndDedupe(await executeProvider(provider, normalizedOptions), normalizedOptions);
             if (candidateListings.length === 0) {
-                providerFailures.push({ provider, error: "provider returned no usable structured listings" });
+                providerFailures.push({ provider, error: "no usable listings" });
                 continue;
             }
             sourceUsed = provider;

@@ -21,12 +21,14 @@ async function waitForLine(lines: string[], index: number, timeoutMs = 3000): Pr
     throw new Error(`Timed out waiting for stdout line ${index + 1}.`);
 }
 
-test("stdio server writes only JSON-RPC messages to stdout", { timeout: 8000 }, async (t) => {
+test("stdio server exposes only the lean tool surface and valid JSON-RPC", { timeout: 8000 }, async (t) => {
     const child = spawn(process.execPath, [resolve(projectRoot, "dist/index.js")], {
         cwd: projectRoot,
         env: {
             ...process.env,
             BESTBUY_API_KEY: "",
+            MCP_LEGACY_TOOLS: "",
+            MCP_DEBUG_ERRORS: "",
         },
         stdio: ["pipe", "pipe", "pipe"],
     });
@@ -96,21 +98,24 @@ test("stdio server writes only JSON-RPC messages to stdout", { timeout: 8000 }, 
     const toolsResponse = JSON.parse(toolsLine) as {
         jsonrpc?: string;
         id?: number;
-        result?: { tools?: unknown[] };
+        result?: { tools?: Array<{ name?: string }> };
     };
     assert.equal(toolsResponse.jsonrpc, "2.0");
     assert.equal(toolsResponse.id, 2);
-    assert.ok(Array.isArray(toolsResponse.result?.tools));
+    assert.deepEqual(
+        toolsResponse.result?.tools?.map((tool) => tool.name),
+        ["search_products", "get_product"],
+    );
 
     child.stdin.write(`${JSON.stringify({
         jsonrpc: "2.0",
         id: 3,
         method: "tools/call",
         params: {
-            name: "search_hardware",
+            name: "search_products",
             arguments: {
+                marketplace: "bestbuy",
                 query: "test product",
-                providers: ["bestbuy"],
             },
         },
     })}\n`);
@@ -121,16 +126,15 @@ test("stdio server writes only JSON-RPC messages to stdout", { timeout: 8000 }, 
         id?: number;
         result?: {
             isError?: boolean;
+            structuredContent?: Record<string, unknown>;
             content?: Array<{ type?: string; text?: string }>;
         };
     };
     assert.equal(failedProviderResponse.jsonrpc, "2.0");
     assert.equal(failedProviderResponse.id, 3);
     assert.equal(failedProviderResponse.result?.isError, true);
-    assert.match(
-        failedProviderResponse.result?.content?.[0]?.text ?? "",
-        /Search failed for every requested provider/,
-    );
+    assert.equal(failedProviderResponse.result?.content?.[0]?.text, "Best Buy search failed.");
+    assert.deepEqual(failedProviderResponse.result?.structuredContent, { error: "request_failed" });
 
     for (const line of lines) {
         assert.doesNotThrow(() => JSON.parse(line), `Invalid stdout JSON: ${line}`);
