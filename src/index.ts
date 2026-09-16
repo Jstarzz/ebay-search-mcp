@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getBestBuyOpenBox, getBestBuyProduct, searchBestBuy } from "./bestbuy.js";
 import { getEbayItem } from "./ebay.js";
 import { registerLegacyTools } from "./legacy-tools.js";
-import { compactSearchPayload, searchSummary } from "./mcp-output.js";
+import { compactSearchPayload, compactSearchText } from "./mcp-output.js";
 import { searchMarketplace } from "./marketplace-router.js";
 import { RequestFilterError, requireFilteredSearchRequest } from "./request-filter.js";
 import { searchEbaySmart } from "./smart-ebay.js";
@@ -96,9 +96,9 @@ server.tool(
                         cacheHit: result.cacheHit,
                         warnings,
                     }),
-                    content: [{ type: "text" as const, text: searchSummary({
+                    content: [{ type: "text" as const, text: compactSearchText({
                         label: resultLabel,
-                        count: result.returned,
+                        listings: result.listings,
                         source: result.sourceUsed,
                         cacheHit: result.cacheHit,
                         failed: result.sourceUsed === null,
@@ -127,9 +127,9 @@ server.tool(
                         source,
                         warnings: result.shippingWarning ? [result.shippingWarning] : [],
                     }),
-                    content: [{ type: "text" as const, text: searchSummary({
+                    content: [{ type: "text" as const, text: compactSearchText({
                         label: "eBay",
-                        count: result.returned,
+                        listings: result.listings,
                         source,
                     }) }],
                 };
@@ -150,9 +150,9 @@ server.tool(
                     source: "bestbuy",
                     warnings: [result.shippingWarning],
                 }),
-                content: [{ type: "text" as const, text: searchSummary({
+                content: [{ type: "text" as const, text: compactSearchText({
                     label: "Best Buy",
-                    count: result.returned,
+                    listings: result.listings,
                     source: "bestbuy",
                 }) }],
             };

@@ -93,8 +93,8 @@ Search output is deliberately compact because MCP tool definitions and tool resu
 - Default search size is 6 listings; maximum is 12.
 - Default tool surface is 2 tools instead of 9 provider-specific tools.
 - Search results are not emitted twice as full JSON plus repeated prose listings.
-- Search text output is one short summary line.
-- Structured results contain only useful model-facing fields.
+- Structured results contain the compact machine-readable listing payload.
+- Text results mirror only listing essentials (title, price/total when known, rating/condition when useful, and clean URL) for MCP clients that do not consume `structuredContent`.
 - Raw provider rows are excluded from ordinary search results.
 - Null/default fields are omitted.
 - Product titles and warning strings are bounded.

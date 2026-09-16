@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { NormalizedListing } from "../src/common.js";
-import { compactListing, compactProductURL, compactSearchPayload } from "../src/mcp-output.js";
+import { compactListing, compactProductURL, compactSearchPayload, compactSearchText } from "../src/mcp-output.js";
 
 function listing(overrides: Partial<NormalizedListing> = {}): NormalizedListing {
     return {
@@ -65,4 +65,26 @@ test("compactSearchPayload keeps diagnostics bounded", () => {
     assert.equal(payload.cache, true);
     assert.equal((payload.warnings as string[]).length, 2);
     assert.ok((payload.warnings as string[])[0].length <= 140);
+});
+
+test("compactSearchText exposes useful listings to text-only MCP clients", () => {
+    const text = compactSearchText({
+        label: "Amazon",
+        listings: [listing()],
+        source: "hasdata",
+    });
+
+    assert.equal(
+        text,
+        "1 Amazon result via hasdata.\n1. Example Product - USD 12.00 total - 4.8/5 - https://example.com/item/1?variant=blue",
+    );
+    assert.equal(text.includes("huge"), false);
+    assert.equal(text.includes("utm_source"), false);
+});
+
+test("compactSearchText preserves a concise failure response", () => {
+    assert.equal(
+        compactSearchText({ label: "AliExpress", listings: [], source: null, failed: true }),
+        "AliExpress search failed.",
+    );
 });
