@@ -147,11 +147,11 @@ export function compactSearchText(options: {
         } else if (compact.price) {
             details.push(compact.ship ? `${compact.price} + ${compact.ship} ship` : compact.price);
         }
-        if (compact.rating !== undefined) details.push(`${compact.rating}★`);
+        if (compact.rating !== undefined) details.push(`${compact.rating}/5`);
         if (compact.condition) details.push(compact.condition);
 
-        const detailText = details.length > 0 ? ` — ${details.join(" — ")}` : "";
-        return `${index + 1}. ${compact.title}${detailText} — ${compact.url}`;
+        const detailText = details.length > 0 ? ` - ${details.join(" - ")}` : "";
+        return `${index + 1}. ${compact.title}${detailText} - ${compact.url}`;
     });
 
     return `${summary}\n${rows.join("\n")}`;
