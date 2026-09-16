@@ -76,7 +76,7 @@ test("compactSearchText exposes useful listings to text-only MCP clients", () =>
 
     assert.equal(
         text,
-        "1 Amazon result via hasdata.\n1. Example Product — USD 12.00 total — 4.8★ — https://example.com/item/1?variant=blue",
+        "1 Amazon result via hasdata.\n1. Example Product - USD 12.00 total - 4.8/5 - https://example.com/item/1?variant=blue",
     );
     assert.equal(text.includes("huge"), false);
     assert.equal(text.includes("utm_source"), false);
