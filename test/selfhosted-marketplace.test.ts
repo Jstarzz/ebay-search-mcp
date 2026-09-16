@@ -36,7 +36,12 @@ test("self-hosted Amazon fallback authenticates, sends marketplace, polls queued
             for await (const chunk of req) chunks.push(Buffer.from(chunk));
             searchBody = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
             res.writeHead(202, { "content-type": "application/json" });
-            res.end(JSON.stringify({ id: "job-1", status: "queued" }));
+            res.end(JSON.stringify({
+                id: "job-1",
+                marketplace: "amazon",
+                query: "gpu",
+                status: "queued",
+            }));
             return;
         }
 
@@ -46,6 +51,8 @@ test("self-hosted Amazon fallback authenticates, sends marketplace, polls queued
             res.writeHead(200, { "content-type": "application/json" });
             res.end(JSON.stringify({
                 id: "job-1",
+                marketplace: "amazon",
+                query: "gpu",
                 status: "complete",
                 result: [{
                     marketplace: "amazon",
@@ -81,8 +88,6 @@ test("self-hosted Amazon fallback authenticates, sends marketplace, polls queued
         ]) delete process.env[key];
         process.env.AMAZON_SELFHOSTED_URL = `http://127.0.0.1:${port}/v1/search`;
         process.env.AMAZON_SELFHOSTED_API_KEY = "ws_live_test";
-        process.env.SELFHOSTED_WAIT_MS = "0";
-        process.env.SELFHOSTED_TOTAL_TIMEOUT_MS = "5000";
 
         const result = await searchMarketplace({ store: "amazon", query: "gpu", limit: 5 });
 
@@ -98,7 +103,7 @@ test("self-hosted Amazon fallback authenticates, sends marketplace, polls queued
         assert.equal(result.listings[0].price.value, 499.99);
         assert.equal(result.listings[0].shippingCost.value, 0);
         assert.equal(result.listings[0].sellerName, "Example Seller");
-        assert.equal(result.listings[0].availability, "available");
+        assert.equal(result.listings[0].availability, "AVAILABLE");
         assert.equal(result.listings[0].metadata.reviewCount, 1234);
     } finally {
         await close(server);
