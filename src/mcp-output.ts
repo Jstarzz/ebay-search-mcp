@@ -120,3 +120,39 @@ export function searchSummary(options: {
     const cache = options.cacheHit ? " (cache)" : "";
     return `${options.count} ${options.label} result${options.count === 1 ? "" : "s"}${source}${cache}.`;
 }
+
+export function compactSearchText(options: {
+    label: string;
+    listings: NormalizedListing[];
+    source?: string | null;
+    cacheHit?: boolean;
+    failed?: boolean;
+}): string {
+    const summary = searchSummary({
+        label: options.label,
+        count: options.listings.length,
+        source: options.source,
+        cacheHit: options.cacheHit,
+        failed: options.failed,
+    });
+
+    if (options.failed || options.listings.length === 0) return summary;
+
+    const rows = options.listings.map((listing, index) => {
+        const compact = compactListing(listing);
+        const details: string[] = [];
+
+        if (compact.total) {
+            details.push(`${compact.total} total`);
+        } else if (compact.price) {
+            details.push(compact.ship ? `${compact.price} + ${compact.ship} ship` : compact.price);
+        }
+        if (compact.rating !== undefined) details.push(`${compact.rating}★`);
+        if (compact.condition) details.push(compact.condition);
+
+        const detailText = details.length > 0 ? ` — ${details.join(" — ")}` : "";
+        return `${index + 1}. ${compact.title}${detailText} — ${compact.url}`;
+    });
+
+    return `${summary}\n${rows.join("\n")}`;
+}
