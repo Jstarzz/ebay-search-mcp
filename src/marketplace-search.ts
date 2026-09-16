@@ -49,6 +49,9 @@ type CacheEntry = {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 5 * 60_000;
 const REQUEST_TIMEOUT_MS = 25_000;
+const SELF_HOSTED_TOTAL_TIMEOUT_MS = 50_000;
+const SELF_HOSTED_WAIT_MS = 15_000;
+const SELF_HOSTED_POLL_INTERVAL_MS = 400;
 
 const nativeProviders = new Set<ProviderId>([
     "bright-data",
@@ -64,6 +67,14 @@ const nativeProviders = new Set<ProviderId>([
 function env(name: string): string | undefined {
     const value = process.env[name]?.trim();
     return value ? value : undefined;
+}
+
+function envInt(name: string, fallback: number, minimum: number, maximum: number): number {
+    const raw = env(name);
+    if (!raw) return fallback;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return fallback;
+    return Math.min(Math.max(Math.trunc(value), minimum), maximum);
 }
 
 function errorMessage(error: unknown): string {
@@ -87,7 +98,7 @@ function nestedRows(value: unknown): Record<string, unknown>[] {
         return [];
     }
 
-    for (const key of ["organic_results", "results", "products", "items", "data", "result"]) {
+    for (const key of ["organic_results", "results", "products", "items", "data", "result", "listings"]) {
         const candidate = value[key];
         if (Array.isArray(candidate)) {
             return candidate.filter(isRecord);
@@ -129,7 +140,7 @@ function normalizeRow(
     index: number,
 ): NormalizedListing | null {
     const title = textOrNull(first(row, ["title", "product_title", "productTitle", "name"]));
-    const url = textOrNull(first(row, ["url", "product_url", "productUrl", "link", "product_link"]));
+    const url = textOrNull(first(row, ["url", "product_url", "productUrl", "link", "product_link", "canonical_url"]));
     if (!title || !url) {
         return null;
     }
@@ -145,19 +156,29 @@ function normalizeRow(
     ]);
     const rawCurrency = first(row, ["currency", "currency_code", "currencyCode"]);
     const currency = textOrNull(rawCurrency) ?? inferCurrency(rawPrice);
-    const price = money(rawPrice, currency);
+    const priceMinor = toNumberOrNull(first(row, ["price_minor", "priceMinor"]));
+    const price = priceMinor === null
+        ? money(rawPrice, currency)
+        : { value: priceMinor / 100, currency };
 
     const rawShipping = first(row, ["shipping", "shipping_cost", "shippingCost", "delivery_price"]);
-    const shippingCost = money(rawShipping, currency);
+    const shippingMinor = toNumberOrNull(first(row, ["shipping_minor", "shippingMinor"]));
+    const shippingCost = shippingMinor === null
+        ? money(rawShipping, currency)
+        : { value: shippingMinor / 100, currency };
     const totalCost = shippingCost.value === null
         ? { value: price.value, currency: price.currency }
         : addMoney(price, shippingCost);
 
-    const id = String(first(row, ["asin", "product_id", "productId", "id", "item_id"]) ?? `${source}-${index}`);
-    const sellerName = textOrNull(first(row, ["seller_name", "sellerName", "store_name", "storeName", "shop_name"]));
+    const id = String(first(row, ["asin", "product_id", "productId", "external_id", "externalId", "id", "item_id"]) ?? `${source}-${index}`);
+    const sellerName = textOrNull(first(row, ["seller_name", "sellerName", "seller", "store_name", "storeName", "shop_name"]));
     const imageUrl = textOrNull(first(row, ["main_image", "image", "imageUrl", "image_url", "thumbnail"]));
     const rating = toNumberOrNull(first(row, ["rating", "stars", "evaluate_rate"]));
-    const reviewCount = toNumberOrNull(first(row, ["reviews_count", "reviews", "reviewCount", "ratings_total"]));
+    const reviewCount = toNumberOrNull(first(row, ["reviews_count", "reviews", "reviewCount", "review_count", "ratings_total"]));
+    const soldCount = toNumberOrNull(first(row, ["sold_count", "soldCount", "orders", "orders_count"]));
+    const rawAvailability = textOrNull(first(row, ["availability", "stock", "stock_status"]));
+    const available = first(row, ["available", "in_stock", "inStock"]);
+    const availability = rawAvailability ?? (typeof available === "boolean" ? (available ? "available" : "unavailable") : null);
 
     return {
         provider: store,
@@ -177,11 +198,12 @@ function normalizeRow(
         locationCountry: textOrNull(first(row, ["country", "ship_from_country", "shipFromCountry"])),
         buyingOptions: [],
         returnsAccepted: null,
-        availability: textOrNull(first(row, ["availability", "stock", "stock_status"])),
+        availability,
         metadata: {
             sourceProvider: source,
             rating,
             reviewCount,
+            soldCount,
             sponsored: first(row, ["isSponsored", "is_sponsored", "sponsored"]) ?? null,
             raw: row,
         },
@@ -373,23 +395,104 @@ async function searchAliExpressOfficial(options: MarketplaceSearchOptions): Prom
     return normalizeRows("aliexpress", "aliexpress-official", payload);
 }
 
+function selfHostedAPIKey(store: RoutedStore): string | undefined {
+    return env(store === "amazon" ? "AMAZON_SELFHOSTED_API_KEY" : "ALIEXPRESS_SELFHOSTED_API_KEY")
+        ?? env("SELFHOSTED_API_KEY");
+}
+
+function selfHostedHeaders(store: RoutedStore): Record<string, string> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const apiKey = selfHostedAPIKey(store);
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    return headers;
+}
+
+function selfHostedJobURL(endpoint: string, jobID: string): URL | null {
+    const url = new URL(endpoint);
+    if (!/\/v1\/search\/?$/.test(url.pathname)) return null;
+    url.pathname = url.pathname.replace(/\/search\/?$/, `/jobs/${encodeURIComponent(jobID)}`);
+    url.search = "";
+    url.hash = "";
+    return url;
+}
+
+function isPendingJob(payload: unknown): payload is Record<string, unknown> {
+    if (!isRecord(payload)) return false;
+    const status = textOrNull(payload.status)?.toLowerCase();
+    return status === "queued" || status === "running";
+}
+
+async function pollSelfHostedJob(
+    endpoint: string,
+    store: RoutedStore,
+    initialPayload: Record<string, unknown>,
+    deadline: number,
+): Promise<unknown> {
+    const jobID = textOrNull(initialPayload.id);
+    if (!jobID) return initialPayload;
+    const jobURL = selfHostedJobURL(endpoint, jobID);
+    if (!jobURL) return initialPayload;
+    const headers = selfHostedHeaders(store);
+
+    while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, SELF_HOSTED_POLL_INTERVAL_MS));
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+
+        const response = await fetch(jobURL, {
+            headers,
+            signal: AbortSignal.timeout(Math.max(1, remaining)),
+        });
+        if (!response.ok) {
+            throw new HTTPError(response.status, await readErrorBody(response));
+        }
+        const payload: unknown = await response.json();
+        if (!isRecord(payload)) return payload;
+        const status = textOrNull(payload.status)?.toLowerCase();
+        if (status === "complete") return payload;
+        if (status === "failed") {
+            throw new Error(textOrNull(payload.error) ?? "self-hosted scrape job failed");
+        }
+        if (status !== "queued" && status !== "running") return payload;
+    }
+
+    throw new Error("self-hosted scrape job did not complete before timeout");
+}
+
 async function searchSelfHosted(options: MarketplaceSearchOptions): Promise<NormalizedListing[]> {
     const source: ProviderId = options.store === "amazon" ? "amazon-selfhosted" : "aliexpress-selfhosted";
     const endpoint = env(options.store === "amazon" ? "AMAZON_SELFHOSTED_URL" : "ALIEXPRESS_SELFHOSTED_URL");
     if (!endpoint) throw new Error(`${options.store} self-hosted endpoint is not configured`);
 
-    const payload = await fetchJson(endpoint, {
+    const totalTimeout = envInt("SELFHOSTED_TOTAL_TIMEOUT_MS", SELF_HOSTED_TOTAL_TIMEOUT_MS, 5_000, 120_000);
+    const waitMS = envInt("SELFHOSTED_WAIT_MS", SELF_HOSTED_WAIT_MS, 0, 30_000);
+    const deadline = Date.now() + totalTimeout;
+    const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: selfHostedHeaders(options.store),
         body: JSON.stringify({
+            marketplace: options.store,
             query: options.query,
             limit: options.limit ?? 10,
+            wait_ms: waitMS,
             minPrice: options.minPrice,
             maxPrice: options.maxPrice,
             shipToCountry: options.shipToCountry,
             shipToPostalCode: options.shipToPostalCode,
         }),
+        signal: AbortSignal.timeout(totalTimeout),
     });
+    if (!response.ok) {
+        throw new HTTPError(response.status, await readErrorBody(response));
+    }
+
+    let payload: unknown = await response.json();
+    if (response.status === 202 && isPendingJob(payload)) {
+        payload = await pollSelfHostedJob(endpoint, options.store, payload, deadline);
+    } else if (isPendingJob(payload)) {
+        payload = await pollSelfHostedJob(endpoint, options.store, payload, deadline);
+    }
+
     return normalizeRows(options.store, source, payload);
 }
 
