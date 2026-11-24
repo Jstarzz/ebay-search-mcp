@@ -453,6 +453,8 @@ export async function searchMarketplace(options: MarketplaceSearchOptions): Prom
     const providerFailures: MarketplaceProviderFailure[] = [];
     let sourceUsed: ProviderId | null = null;
     let listings: NormalizedListing[] = [];
+    // Titles without prices are only kept if no provider returns prices.
+    let unpriced: { provider: ProviderId; listings: NormalizedListing[] } | null = null;
 
     for (const provider of route) {
         attemptedProviders.push(provider);
@@ -462,12 +464,21 @@ export async function searchMarketplace(options: MarketplaceSearchOptions): Prom
                 providerFailures.push({ provider, error: "no usable listings" });
                 continue;
             }
+            if (!candidateListings.some((listing) => listing.price.value !== null)) {
+                providerFailures.push({ provider, error: "listings had no prices" });
+                unpriced ??= { provider, listings: candidateListings };
+                continue;
+            }
             sourceUsed = provider;
             listings = candidateListings.slice(0, normalizedOptions.limit);
             break;
         } catch (error) {
             providerFailures.push({ provider, error: errorMessage(error) });
         }
+    }
+    if (listings.length === 0 && unpriced) {
+        sourceUsed = unpriced.provider;
+        listings = unpriced.listings.slice(0, normalizedOptions.limit);
     }
 
     const result: MarketplaceSearchResult = {
