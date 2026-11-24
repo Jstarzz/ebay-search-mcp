@@ -111,3 +111,36 @@ test("self-hosted Amazon fallback authenticates, sends marketplace, polls queued
         clearMarketplaceCache();
     }
 });
+
+test("unpriced listings are reported as a provider failure and kept only as a last resort", async () => {
+    clearMarketplaceCache();
+    const originalEnv = { ...process.env };
+    const server = http.createServer((req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        if (req.method === "POST") {
+            res.end(JSON.stringify({ id: "job-2", marketplace: "amazon", query: "mouse", status: "queued" }));
+            return;
+        }
+        res.end(JSON.stringify({
+            id: "job-2", marketplace: "amazon", query: "mouse", status: "complete",
+            result: [{ marketplace: "amazon", external_id: "B0NOPRICE", title: "Mouse", url: "https://www.amazon.com/dp/B0NOPRICE" }],
+        }));
+    });
+    const port = await listen(server);
+    try {
+        for (const key of ["BRIGHT_DATA_API_KEY", "SCRAPINGDOG_API_KEY", "HASDATA_API_KEY", "APIFY_TOKEN", "APIFY_AMAZON_ACTOR_ID", "SERPAPI_API_KEY"]) delete process.env[key];
+        process.env.AMAZON_SELFHOSTED_URL = `http://127.0.0.1:${port}/v1/search`;
+        process.env.AMAZON_SELFHOSTED_API_KEY = "ws_live_test";
+
+        const result = await searchMarketplace({ store: "amazon", query: "mouse", limit: 5 });
+
+        assert.deepEqual(result.providerFailures, [{ provider: "amazon-selfhosted", error: "listings had no prices" }]);
+        assert.equal(result.sourceUsed, "amazon-selfhosted");
+        assert.equal(result.listings[0].id, "B0NOPRICE");
+        assert.equal(result.listings[0].price.value, null);
+    } finally {
+        await close(server);
+        process.env = originalEnv;
+        clearMarketplaceCache();
+    }
+});
